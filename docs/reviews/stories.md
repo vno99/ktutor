@@ -1,114 +1,119 @@
 # Review — Story Breakdown
 
 > Revu par : sous-agent `stories-reviewer` (contexte frais).
-> Date : 2026-08-28
+> Date : 2026-08-28 (re-review après commit correctif)
 > Source : `docs/stories.md` vs `docs/prd.md`
 
 ## Note méthodologique
 
-Le PRD ne contient pas une table littérale « Replicated (core loop) » ni une section « Explicitly NOT replicated ». La skill `stories-review` mentionne ces noms exacts. Le sous-agent a utilisé `Périmètre (in)` et `Hors-scope (out)` comme équivalents. Si la convention du projet exige l'une de ces deux tables, il faudrait soit les ajouter au PRD, soit renommer les sections existantes — sans cela, la prochaine review risque de tourner en rond sur le même malentendu.
+Le PRD ne contient pas une table littérale « Replicated (core loop) » ni une section « Explicitly NOT replicated ». La skill `stories-review` mentionne ces noms exacts. Le sous-agent a utilisé `Périmètre (in)` et `Hors-scope (out)` comme équivalents, comme lors de la review précédente.
+
+## Vérification des correctifs annoncés par l'auteur
+
+| Correctif annoncé (issue de la review précédente) | État | Note |
+|---|---|---|
+| **critical** — s06b-generer-flashcards ajoutée | OK | Story shippable, AC testables, complexité 3, dépendances s01/s02/s03 saines. Couvre le type d'exercice « flashcards » du périmètre. |
+| **major** — s12b-creer-compte-admin-parent ajoutée | PARTIEL | Story livrée, AC testables, scope correct (POST /users + PUT /users/{pseudo}/role + garde « last admin »). **Mais** voir finding major §5 — chaîne de dépendances cassée. |
+| **major** — s18b-evaluation-actions-admin ajoutée | OK | Story shippable, AC testables, scope correct (score-manual + reprocess), dépendances s18/s14/s15 saines. |
+| **minor** — wording s22 nettoyé | OK | Plus de caractère chinois parasite. |
+| **minor** — wording s20 clarifié (3 tentatives max + 4e = 409) | OK | Cohérent avec s08. |
+| **minor** — s08 ajout AC 409 sur 4e tentative | OK | « A test verifies that an attempt_number > 3 on the same exercise returns 409 ». |
+| **minor** — s17 complexité 2 → 3 + risque explicité | OK | Complexité 3, risque documenté (réutilisation du composant eleve). |
+| **minor** — s21 complexité 2 → 3 + risque explicité | OK | Complexité 3, risque documenté (frontend next-intl + backend Accept-Language). |
+| **minor** — s06 référence stale STORY-016 | OK | Pointe désormais sur la question ouverte n°2 du PRD, dans la phase Research de s06. |
+
+Aucun finding de la review précédente n'a été affaibli ou abandonné — tous sont traités ou améliorés.
 
 ## Couverture du périmètre (Périmètre in)
 
-| Périmètre PRD (in) | Story(s) candidate(s) | OK ? |
+| Périmètre PRD (in) | Story(s) | OK ? |
 |---|---|---|
-| Upload de documents (PDF, images dactylo, manuscrites via OCR LLM) | s01 (CLI), s10 (API) | OK |
-| Pipeline RAG par matière (ingestion → chunking → embeddings → ChromaDB, une collection par matière × élève) | s01, s05 | OK |
-| Chat RAG (questions en langage naturel, agent spécialisé par matière) | s02, s05 | OK |
+| Upload de documents (PDF, images dactylo, manuscrites OCR LLM) | s01 (CLI), s10 (API) | OK |
+| Pipeline RAG par matière (collection par matière × élève) | s01, s05 | OK |
+| Chat RAG (agent spécialisé par matière) | s02, s05 | OK |
 | Génération d'exercices — QCM | s03 | OK |
 | Génération d'exercices — problème | s06 | OK |
 | Génération d'exercices — rédaction | s06 | OK |
-| Génération d'exercices — **flashcards** | **aucune** (s06 ne couvre que `probleme|redaction` ; les notes de fin admettent le drop) | **FAIL** |
-| Correction progressive (QCM tout-ou-rien, rédaction appréciation LLM, 3 tentatives max) | s08 | OK |
-| Évaluations (upload copie corrigée → extraction score + annotations) | s18 (upload + extraction). Mais `POST /evaluations/{id}/score-manual` et `POST /evaluations/{id}/reprocess` (CLAUDE.md) ne sont pas dans une story. | PARTIEL |
-| Multi-tenancy (PostgreSQL, ChromaDB, MinIO, JWT) | s01, s15 + tests d'isolation dans s10, s16, s17, s18, s20 | OK |
-| Authentification & RBAC (JWT RS256, admin/parent/élève, pseudo) | s12 (élève), s13 (JWT), s14 (parent↔enfant), s15 (RBAC transverse). Mais aucune story ne crée de compte `parent` ou `admin` ni n'assigne un rôle non-élève. | PARTIEL |
-| Dashboards (progression élève, vue parent lecture seule) | s16, s17 | OK |
-| i18n (FR par défaut, EN, next-intl) | s21 (s11 amorce) | OK |
-| Accessibilité (responsive smartphone/tablette, WCAG 2.1 A) | s11 (responsive de base), s22 (audit + a11y complet) | OK |
-| Observabilité (logs structurés, OpenTelemetry, Prometheus, alerting) | s23, s24 | OK |
+| Génération d'exercices — flashcards | s06b | OK (réparé) |
+| Correction progressive (3 tentatives max) | s04, s07, s08 | OK |
+| Évaluations (upload + extraction score + annotations) | s18, s18b | OK (réparé) |
+| Multi-tenancy (PostgreSQL, ChromaDB, MinIO, JWT) | s15 + tests cross-tenant dans s10/s16/s17/s18/s20 | OK |
+| Authentification & RBAC (JWT RS256, admin/parent/élève, pseudo) | s12, s12b, s13, s14, s15 | OK (réparé) |
+| Dashboards (élève + parent lecture seule) | s16, s17 | OK |
+| i18n (FR/EN, next-intl) | s21 | OK |
+| Accessibilité (responsive, WCAG 2.1 A) | s11, s22 | OK |
+| Observabilité (logs, OTel, Prometheus, alerting) | s23, s24 | OK |
 
-- [ ] **Chaque feature du périmètre est livrée par au moins une story — FAIL** (flashcards droppées ; création de comptes non-élève absente)
+- [x] **Chaque feature du périmètre est livrée par au moins une story** — périmètre complet.
 
 ## Graveyard (Hors-scope out)
 
-| Item hors-scope (out) | Fuite dans une story ? | OK ? |
+| Item hors-scope | Fuite ? | OK ? |
 |---|---|---|
 | RGPD / CNIL / données personnelles | non | OK |
-| Déploiement cloud / production, Kubernetes, CI/CD prod | non | OK |
-| Paiements / abonnements / Stripe | non | OK |
+| Déploiement cloud / production | non | OK |
+| Paiements / abonnements | non | OK |
 | Rôle enseignant | non | OK |
-| Intégrations tierces (ENT, Pronote, ÉcoleDirecte, Google Classroom) | non | OK |
-| App mobile native | non | OK |
+| Intégrations tierces (ENT, Pronote…) | non | OK |
+| App mobile native | non (web responsive uniquement) | OK |
 | Notifications push / email | non (s25 explicitement in-app) | OK |
-| Multi-langues UI au-delà de FR/EN | non (s21 limité à FR/EN) | OK |
+| Multi-langues au-delà FR/EN | non (s21 limité à FR/EN) | OK |
 
-- [x] **Aucune story ne réintroduit un item du graveyard**
+- [x] **Aucune story ne réintroduit un item du graveyard.**
 
 ## Qualité des stories
 
-- [x] Chaque story est une tranche end-to-end shippable, pas une couche technique. Aucune story n'est purement « set up the database » ou « create the API layer ». s05 introduit le superviseur en même temps que l'agent français — borderline, mais shippable car l'agent répond à un utilisateur.
-- [x] Chaque critère d'acceptation peut devenir un test (critères concrets, données de test évoquées, codes retour HTTP, regex, seuils).
-- [x] Notes agentic présentes et utiles (fichiers impliqués, contraintes, pièges dans toutes les stories).
-- [x] Complexité scorée. Pas de 5. Chaque 4 (s08, s11, s18) énonce son risque dans les notes agentic.
+- [x] Chaque story est une tranche end-to-end shippable. Les trois nouvelles stories (s06b, s12b, s18b) passent chacune le test : persona + valeur utilisateur + critère de succès.
+- [x] Chaque AC peut devenir un test. Les AC des trois nouvelles stories spécifient des codes HTTP, des schémas JSON, des assertions de RBAC, des assertions d'isolation.
+- [x] Notes agentic présentes et utiles dans toutes les stories (fichiers, contraintes, pièges, parfois test data). s12b et s18b ont des traps ciblées (« last admin race condition », « parent-child link lookup dans le path d'autorisation »).
+- [x] Complexité scorée. Pas de 5. Les complexités 4 (s08, s11, s18) énoncent leur risque. s12b à 3, s18b à 2 — cohérent avec le scope.
+- [x] IDs bien formés `s<number>-<slug>`, uniques (s01-s26 + s06b/s12b/s18b), stables.
+- [x] Pas d'overlap. s06 / s06b sont deux types d'exercice distincts (probleme|redaction vs flashcards). s12 / s12b sont deux paths de création (élève public vs admin/parent). s18 / s18b sont deux actions (upload vs remédiation post-extraction).
 
-## L'ensemble
+## Ordre des dépendances
 
-- [x] Pas de cycle, pas de référence forward. L'ordre s01 → … → s26 est exécutable.
-- [x] Ids bien formés (`s<number>-<slug>`), uniques, stables (s01 à s26, pas de doublon).
-- [x] Pas de vrai overlap. s03 et s06 partagent le modèle `Exercise` mais s06 en est une extension downstream (dépendances respectées). s04 et s07 écrivent dans le même modèle `Attempt` mais pour des flux distincts (QCM vs texte libre) — pas une duplication de valeur.
+L'ordre s01 → … → s26 est globalement exécutable, à l'**exception d'un forward reference** dans s12b :
+
+**s12b déclare comme dépendances :**
+- s12 (User model exists) — OK, position précédente.
+- s13 (JWT middleware exists — to verify the `admin` role).
+
+**Or :**
+- s12b est placée en position 2 dans la Phase 3 (entre s12 et s13).
+- L'« Ordre d'exécution suggéré » en fin de fichier confirme : `s12 → s12b → s13 → s14 → s15`.
+- L'AC de s14 dit textuellement : « The dependency chain is now: s12 → s12b → s13 → s14 ».
+
+**Le problème :** les AC de s12b exigent un test « A non-admin caller gets 403 » et « an admin can create a `parent` user ». Ces tests requièrent :
+1. Un mécanisme d'authentification pour distinguer admin / non-admin (JWT, donc s13).
+2. Une stratégie de test où « the test client logs in as that admin » (notes agentic de s12b) — login = s13.
+
+Suivre l'ordre déclaré `s12 → s12b → s13` rend s12b impossible à exécuter : aucun mécanisme d'auth n'existe pour valider le rôle.
+
+**Deux fixes possibles (à choisir par l'auteur) :**
+- (a) Réordonner : `s12 → s13 → s12b → s14 → s15`. Le forward reference disparaît, s14 garde toutes ses dépendances (s12, s12b, s13).
+- (b) Laisser s12b avant s13, mais lui faire utiliser un stub d'auth en `pseudo+role` dans le body (analogue à s09, s10), et l'ajouter à la liste de migration JWT de s15. Dans ce cas, s12b ne devrait pas déclarer s13 en dépendance et la note de s14 serait corrigée.
+
+L'auteur doit choisir l'une des deux options. Le défaut actuel (forward reference) viole la règle « no forward reference ».
+
+Aucun autre cycle ni forward reference détecté. s15 dépend bien de s13 et de l'ensemble des endpoints antérieurs. s17 dépend de s14/s15/s16 dans le bon ordre. s20 dépend de s04/s07/s08/s16.
 
 ## Findings
 
-### critical — coverage — Les flashcards sont dans le périmètre mais absentes des stories
+### major — s12b — Forward reference sur s13 (chaîne de dépendances cassée)
 
-Le PRD liste « QCM, problème, rédaction, flashcards » comme types d'exercices à générer. s06 ne couvre que `probleme|redaction` ; les notes de fin du document admettent « Les flashcards peuvent être une story ultérieure si besoin ». Une feature du périmètre est silencieusement droppée et n'apparaît qu'en fin de document.
-
-### major — coverage — Aucune story ne crée de compte `parent` ou `admin` ni ne change un rôle
-
-s12 fixe `role='eleve'` par défaut et aucune autre story ne s'en écarte. Pourtant s14 (lier parent ↔ enfant), s15 (admin bypass) et s17 (dashboard parent) en dépendent. Pour qu'un parent puisse se lier, il faut un compte `parent` existant ; pour que l'admin puisse bypass, il faut un compte `admin` — sans story, l'arbre de dépendances casse en pratique.
-
-### major — coverage — Les endpoints `POST /evaluations/{id}/score-manual` et `POST /evaluations/{id}/reprocess` ne sont livrés par aucune story
-
-Définis dans CLAUDE.md, et la storyline de s18 y fait référence (« prompts the user (or an admin) to enter the score manually »). s18 couvre `POST /api/evaluations/upload` mais pas les deux autres. Le fallback `manual_review_needed` de s18 n'a pas de chemin de remédiation.
-
-### minor — s22 — Caractère chinois dans le wording utilisateur
-
-L'énoncé utilisateur contient « 障碍 » au milieu d'une phrase française (« … que je puisse utiliser l'app sans障碍 »). Probablement un artefact d'encodage / typo. À corriger dans le wording.
-
-### minor — s21 — Scope mixte frontend / backend sous-évalué
-
-Le scope mélange i18n frontend (next-intl, message catalogs) et i18n backend (Accept-Language) dans une seule story de complexité 2. Shippable, mais le rating sous-estime deux surfaces techniques très différentes.
-
-### minor — s17 — Complexité annoncée 2 sous-évaluée
-
-La story cumule endpoint parent, page liste, page child-detail, vérification que la `child-detail` est en lecture seule et tests d'isolation. Le « re-use » de s16 n'est pas aussi simple qu'annoncé. Pas un blocker, mais le risque mérite d'être explicité comme pour les autres 4.
-
-### minor — s14 — AC fragilisée par l'absence de création d'admin
-
-AC « Only an admin (or the parent themselves, in a follow-up) can create the link » ne précise pas qui authentifie l'admin puisque aucune story ne crée d'admin. Lié au gap critique sur la création de rôles non-élève, mais localement ça fragilise la testabilité de l'AC.
-
-### minor — s20 — Incohérence wording 3 vs 4 tentatives
-
-L'AC « After 3 failed attempts, the full correction is shown but no points are awarded » et la trap « the student can submit the same exercise 4 times (3 fails + 1 final with full solution shown) » sont incohérentes : la 3e tentative est celle qui déclenche `full_after_attempts`, donc la 3e soumission est aussi la dernière utile, pas une 4e. Wording à clarifier.
-
-### minor — s06 — Référence stale vers une question ouverte du PRD
-
-« Open question (PRD § Questions ouvertes) : le PRD pointe ce sujet sur STORY-016, pas sur cette story. » Référence stale.
+s12b déclare « s13 (JWT middleware exists — to verify the `admin` role) » comme dépendance mais est placée avant s13 dans le fichier. L'« Ordre d'exécution suggéré » et la note de s14 entérinent l'ordre cassé `s12 → s12b → s13 → s14`. Conséquence : s12b ne peut pas être exécutée en l'état — ses tests « 403 pour non-admin » et « admin crée parent » présupposent un middleware JWT qui n'existe pas encore. Fix : réordonner en `s12 → s13 → s12b → s14 → s15`, OU faire de s12b une story à stub d'auth migrée par s15 (auquel cas la dépendance s13 disparaît et s15 doit ajouter s12b à sa liste de migration à côté de s09, s10).
 
 ## Verdict
 
-Max severity: critical
+Max severity: major
 Stories ready: no
 
 ---
 
 ## Suite
 
-Stories review bloquée (critical). Corriger `docs/stories.md` — relancer `/ks-stories` ou l'éditer directement — puis relancer `/ks-stories-review`.
+Stories review bloquée (major). Corriger `docs/stories.md` — choisir l'une des deux options ci-dessus pour s12b, puis relancer `/ks-stories-review`.
 
 Actions prioritaires :
-1. **Restaurer les flashcards dans le périmètre** (story dédiée ou intégration à s06).
-2. **Ajouter une story de gestion des comptes non-élève** : création de compte `parent` et `admin` + endpoint de mise à jour de rôle. Sans cela, s14, s15, s17 ne sont pas testables.
-3. **Compléter s18** (ou ajouter une story) pour livrer `POST /evaluations/{id}/score-manual` et `POST /evaluations/{id}/reprocess`.
-4. Corriger les findings minor (wording s22, s20 ; clarifier la complexité s17, s21 ; fixer la référence stale s06).
+1. **Réordonner s12b** après s13 (chemin recommandé), ou la passer en stub d'auth avec migration dans s15. Une seule des deux — l'état actuel mélange les deux et casse la chaîne.
+2. Aucun autre finding à corriger.
