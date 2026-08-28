@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ktutor-backend"
+version = "0.1.0"
+description = "ktutor backend: AI homework assistant"
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[project.scripts]
+ktutor = "app.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning:langchain_community",
+]
