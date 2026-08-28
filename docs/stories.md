@@ -414,7 +414,7 @@
 - [ ] The pseudo is unique (case-insensitive). A duplicate returns 409 with a clear error.
 - [ ] The pseudo is 3-32 chars, alphanumeric + underscore. A violation returns 422.
 - [ ] The password is ≥ 8 chars. A violation returns 422.
-- [ ] A `User` row is created in PostgreSQL with `role='eleve'` by default (this story covers ONLY the `eleve` role; creation of `parent` and `admin` is in s12b).
+- [ ] A `User` row is created in PostgreSQL with `role='eleve'` by default (this story covers ONLY the `eleve` role; creation of `parent` and `admin` is in s13b).
 - [ ] A test verifies the happy path and the duplicate-pseudo case.
 
 ### Dependencies
@@ -425,48 +425,11 @@
 - **Constraints** :
   - JWT is NOT in this story — this is just account creation. Login (token issuance) is a separate story.
   - The `pseudo` is the only identifier — no email, no real name (per PRD § Hors-scope).
-  - This endpoint is public; only `eleve` is creatable via the public path. The `parent` and `admin` roles require a different story (s12b) because they need a different onboarding path.
+  - This endpoint is public; only `eleve` is creatable via the public path. The `parent` and `admin` roles require a different story (s13b) because they need a different onboarding path.
 - **Traps** :
   - Bcrypt has a 72-byte input limit — pre-hash with SHA-256 if the password is long, or just enforce a 72-byte max.
   - The uniqueness check should be case-insensitive (use `LOWER()` in the SQL).
   - Do NOT log the password, even in error messages.
-
----
-
-### Story s12b-creer-compte-admin-parent — Créer un compte parent ou admin et mettre à jour un rôle
-
-**As an** admin **I want** créer un compte parent (ou admin) et pouvoir changer le rôle d'un utilisateur existant **so that** les comptes non-élève existent et le RBAC soit testable de bout en bout.
-
-### Complexity
-**3** — Admin-only endpoints + role update + auditability. Split de l'ancien s12 + s14 pour résoudre la dépendance cyclique : s14 (lier parent ↔ enfant) présuppose qu'un compte `parent` existe, ce qui n'était livré par aucune story. Cette story doit précéder s14.
-
-### Acceptance criteria
-- [ ] The endpoint `POST /api/users` (admin only, JWT) accepts `{pseudo, password, role: "parent" | "admin"}` and returns 201 with `{pseudo, role}`.
-- [ ] The endpoint enforces: the authenticated user MUST have `role='admin'`. A non-admin caller gets 403.
-- [ ] The `pseudo` follows the same rules as s12 (3-32 chars, alphanumeric + underscore, unique case-insensitive).
-- [ ] The `User` row is created with the requested role (not forced to `eleve`).
-- [ ] The endpoint `PUT /api/users/{pseudo}/role` (admin only) accepts `{role: "eleve" | "parent" | "admin"}` and updates the role. Returns 200 with the updated user.
-- [ ] An admin cannot demote themselves (the last admin cannot change their own role to `parent` or `eleve`) — returns 409 if attempted.
-- [ ] A test verifies an admin can create a `parent` user.
-- [ ] A test verifies a non-admin caller gets 403 on `POST /api/users`.
-- [ ] A test verifies role update is logged (audit trail entry).
-- [ ] A test verifies multi-tenant behavior: a `parent` user (not admin) gets 403 on these endpoints.
-
-### Dependencies
-- s12 (the `User` model exists).
-- s13 (JWT middleware exists — to verify the `admin` role).
-
-### Agentic notes
-- **Files involved** : `backend/app/api/users/create.py`, `backend/app/api/users/role.py`, `backend/app/core/database/models.py` (extend `User` if needed), `backend/app/api/auth/dependencies.py` (RBAC helper for "admin only").
-- **Constraints** :
-  - This is a SECURITY-CRITICAL story. The admin endpoints MUST be locked down (no public access, even authenticated non-admin).
-  - The password is hashed with bcrypt (reuse s12's wrapper).
-  - For the POC, the `audit trail` is a simple log line (`security.role_change`) — a dedicated `AuditLog` table is a future optimization.
-- **Traps** :
-  - The "last admin" check requires a count query — handle the race condition with a transaction (lock the row, count admins, then update).
-  - Do NOT allow an admin to create a `parent` user with the same `pseudo` as an existing `eleve` (or vice versa) — pseudo uniqueness spans all roles.
-  - The `POST /api/users` endpoint does NOT issue a JWT — the created user must log in via `POST /api/auth/login` (s13) to get a token.
-- **Test strategy** : seed the test database with an `admin` user via a fixture (e.g. environment-driven bootstrap or a migration seed); the test client logs in as that admin to call these endpoints.
 
 ---
 
@@ -503,6 +466,43 @@
 
 ---
 
+### Story s13b-creer-compte-admin-parent — Créer un compte parent ou admin et mettre à jour un rôle
+
+**As an** admin **I want** créer un compte parent (ou admin) et pouvoir changer le rôle d'un utilisateur existant **so that** les comptes non-élève existent et le RBAC soit testable de bout en bout.
+
+### Complexity
+**3** — Admin-only endpoints + role update + auditability. Cette story est numérotée `s13b` et placée après `s13` parce qu'elle présuppose le middleware JWT (s13) pour distinguer les callers `admin` des autres. L'ancienne numérotation `s12b` créait un forward reference.
+
+### Acceptance criteria
+- [ ] The endpoint `POST /api/users` (admin only, JWT) accepts `{pseudo, password, role: "parent" | "admin"}` and returns 201 with `{pseudo, role}`.
+- [ ] The endpoint enforces: the authenticated user MUST have `role='admin'`. A non-admin caller gets 403.
+- [ ] The `pseudo` follows the same rules as s12 (3-32 chars, alphanumeric + underscore, unique case-insensitive).
+- [ ] The `User` row is created with the requested role (not forced to `eleve`).
+- [ ] The endpoint `PUT /api/users/{pseudo}/role` (admin only) accepts `{role: "eleve" | "parent" | "admin"}` and updates the role. Returns 200 with the updated user.
+- [ ] An admin cannot demote themselves (the last admin cannot change their own role to `parent` or `eleve`) — returns 409 if attempted.
+- [ ] A test verifies an admin can create a `parent` user.
+- [ ] A test verifies a non-admin caller gets 403 on `POST /api/users`.
+- [ ] A test verifies role update is logged (audit trail entry).
+- [ ] A test verifies multi-tenant behavior: a `parent` user (not admin) gets 403 on these endpoints.
+
+### Dependencies
+- s12 (the `User` model exists).
+- s13 (JWT middleware exists — to verify the `admin` role).
+
+### Agentic notes
+- **Files involved** : `backend/app/api/users/create.py`, `backend/app/api/users/role.py`, `backend/app/core/database/models.py` (extend `User` if needed), `backend/app/api/auth/dependencies.py` (RBAC helper for "admin only").
+- **Constraints** :
+  - This is a SECURITY-CRITICAL story. The admin endpoints MUST be locked down (no public access, even authenticated non-admin).
+  - The password is hashed with bcrypt (reuse s12's wrapper).
+  - For the POC, the `audit trail` is a simple log line (`security.role_change`) — a dedicated `AuditLog` table is a future optimization.
+- **Traps** :
+  - The "last admin" check requires a count query — handle the race condition with a transaction (lock the row, count admins, then update).
+  - Do NOT allow an admin to create a `parent` user with the same `pseudo` as an existing `eleve` (or vice versa) — pseudo uniqueness spans all roles.
+  - The `POST /api/users` endpoint does NOT issue a JWT — the created user must log in via `POST /api/auth/login` (s13) to get a token.
+- **Test strategy** : seed the test database with an `admin` user via a fixture (e.g. environment-driven bootstrap or a migration seed); the test client logs in as that admin via s13 to call these endpoints.
+
+---
+
 ### Story s14-lier-parent-enfant — Lier un compte parent à un compte enfant
 
 **As a** parent **I want** que mon compte soit lié au compte de mon enfant **so that** je puisse consulter sa progression.
@@ -521,8 +521,8 @@
 
 ### Dependencies
 - s12 (eleve User row exists for the child).
-- s12b (parent and admin User rows exist).
 - s13 (auth middleware enforces role).
+- s13b (parent and admin User rows exist — s14 can only be tested once `s13b` has created at least one parent user and one admin user).
 
 ### Agentic notes
 - **Files involved** : `backend/app/api/users/parent_child.py`, `backend/app/core/database/models.py` (add `ParentChildLink` model).
@@ -530,7 +530,7 @@
 - **Traps** :
   - The endpoint URL is `/api/users/{parent_pseudo}/children` — the `parent_pseudo` in the URL must match the authenticated user (or the user must be an admin). Do not trust the URL value.
   - Cycle detection: in theory, a parent-child link could be cyclic (A is parent of B, B is parent of A). For the POC, no cycle prevention — note as a follow-up.
-  - This story was previously blocked on the absence of a story creating `parent` accounts. The dependency chain is now: s12 → s12b → s13 → s14.
+  - The dependency chain is now: s12 → s13 → s13b → s14 (s13b moved after s13 to resolve a forward reference on the JWT middleware).
 
 ---
 
@@ -957,7 +957,7 @@ Les stories candidates `STORY-005` (init monorepo) et `STORY-006` (config LLM) o
 ### Corrections issues de la review `docs/reviews/stories.md`
 
 - **Critical (flashcards)** : s06b ajoutée pour livrer les flashcards (sinon drop silencieux du périmètre).
-- **Major (comptes non-élève)** : s12b ajoutée pour créer des comptes `parent`/`admin` et mettre à jour un rôle. Sans cette story, s14, s15, s17 n'étaient pas testables. La chaîne de dépendances est maintenant : s12 → s12b → s13 → s14.
+- **Major (comptes non-élève)** : s13b (anciennement numérotée s12b) ajoutée pour créer des comptes `parent`/`admin` et mettre à jour un rôle. Sans cette story, s14, s15, s17 n'étaient pas testables. La chaîne de dépendances est maintenant : s12 → s13 → s13b → s14. La story a été déplacée après s13 pour résoudre un forward reference sur le middleware JWT (l'AC « 403 pour non-admin » présuppose un mécanisme d'auth qui n'existe qu'après s13).
 - **Major (endpoints évaluation)** : s18b ajoutée pour livrer `POST /evaluations/{id}/score-manual` et `POST /evaluations/{id}/reprocess`. Le fallback `manual_review_needed` de s18 a maintenant un chemin de remédiation.
 - **Minor s22** : wording nettoyé (caractère chinois parasite supprimé).
 - **Minor s20** : wording clarifié — l'exercice est fermé après 3 tentatives (pas de 4e soumission), chaque tentative est dans le ledger avec ses points (toujours 0 pour les échecs).
@@ -970,6 +970,6 @@ Les stories candidates `STORY-005` (init monorepo) et `STORY-006` (config LLM) o
 
 Phase 1 (POC) : s01 → s02 → s03 → s04.
 Phase 2 (MVP) : s05 → s06 → s06b → s07 → s08 → s09 → s10 → s11.
-Phase 3 (Sécurité) : s12 → s12b → s13 → s14 → s15.
+Phase 3 (Sécurité) : s12 → s13 → s13b → s14 → s15.
 Phase 4 (Pédagogie) : s18 → s18b → s20 → s16 → s17 → s19. (s18 et s20 en premier car ils produisent les données que les dashboards affichent.)
 Phase 5 (Finalisation) : s21 → s22 → s23 → s24 → s25 → s26.
