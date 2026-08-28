@@ -25,9 +25,9 @@
 - [ ] A test using two different pseudos verifies that documents uploaded by `pseudo_a` are NOT retrievable from `pseudo_b`'s collection (multi-tenant isolation).
 
 ### Dependencies
-- Monorepo initialized (pre-tâche technique dans le worktree de cette story : `backend/`, `requirements.txt`, `docker-compose.yml`).
+- Monorepo initialized (pré-tâche technique dans le worktree de cette story : `backend/`, `requirements.txt`, `docker-compose.yml`).
 - PostgreSQL + ChromaDB running locally (docker-compose up).
-- LLM provider configured and reachable (pre-tâche : `MINIMAX_API_KEY` in `.env`, client wrapper tested).
+- LLM provider configured and reachable (pré-tâche : `MINIMAX_API_KEY` in `.env`, client wrapper tested).
 
 ### Agentic notes
 - **Files involved** : `backend/app/services/rag/ingestion.py`, `backend/app/services/rag/ocr.py`, `backend/app/services/rag/embeddings.py`, `backend/app/services/rag/chroma_store.py`, `backend/app/cli.py`, `backend/app/core/database/models.py`.
@@ -192,7 +192,42 @@
   - LLM may produce a "correction" instead of a "statement" — the prompt must forbid this and a test must catch it.
   - The `expected_answer` is the FULL solution used later for grading. It must be richer than the statement.
   - LLM may produce a "redaction" without specifying the length/format — coerce or reject.
-- **Open question (PRD § Questions ouvertes)** : the level of detail in math problem statements is to be refined in Research.
+- **Open question (PRD § Questions ouvertes)** : the level of detail in math problem statements is to be refined in Research (question ouverte n°2 du PRD, à traiter dans la phase Research de cette story).
+
+---
+
+### Story s06b-generer-flashcards — Générer des flashcards à partir d'un document
+
+**As an** élève **I want** générer des flashcards (recto : question, verso : réponse) à partir d'un de mes documents **so that** je puisse réviser par rappel actif.
+
+### Complexity
+**3** — LLM generation + structured output + persistence. Split de l'ancien s06 pour respecter le périmètre PRD (les flashcards sont un type d'exercice à part entière, pas une option de `probleme|redaction`).
+
+### Acceptance criteria
+- [ ] The CLI command `python -m ktutor.cli generate-flashcards --pseudo <p> --document-id <id> --n 10` returns a JSON with 10 cards, each having `front` (question/prompt), `back` (answer/explanation), `topic` (string, optional).
+- [ ] The output is valid JSON, parseable without manual cleanup.
+- [ ] The flashcards are generated ONLY from the specified document (chunks filtered by `document_id`).
+- [ ] Each card's `front` is a self-contained question (not a fragment that requires context) and `back` is a concise answer.
+- [ ] The generated deck is persisted in PostgreSQL with metadata: pseudo, document_id, generation_date, cards JSON.
+- [ ] A test verifies the JSON schema is valid (front, back, topic fields present and non-empty).
+- [ ] A test verifies multi-tenant isolation: pseudo_a cannot read the deck of pseudo_b.
+
+### Dependencies
+- s01 (RAG works for any subject).
+- s02 (LLM provider).
+- s03 (the `Exercise` model exists — the flashcard deck reuses it with `type='flashcards'`).
+
+### Agentic notes
+- **Files involved** : `backend/app/services/exercises/flashcard_generator.py`, `backend/app/core/database/models.py` (extend `Exercise` model with `type='flashcards'` discriminator if not already present), `backend/app/cli.py` (extend).
+- **Constraints** :
+  - Use the same Pydantic validation discipline as s03 — the LLM output MUST be validated before persistence.
+  - For the POC, flashcards are NOT graded via the progressive correction flow (s08) — they are a study aid, not an evaluated exercise. Mark them as such in the model.
+  - Number of cards per generation: configurable, default 10, max 30.
+- **Traps** :
+  - LLM may produce a `back` that simply repeats the `front` — the prompt must explicitly require the back to BE the answer, not a restatement.
+  - LLM may produce cards too long for a real flashcard (multiple sentences) — enforce a max length (e.g. 200 chars per side) and reject or truncate.
+  - LLM may generate cards that don't come from the source document — the prompt must say "ONLY from the provided chunks".
+- **Test data** : a small math PDF or French text already indexed via s01 is enough — the test asserts schema, not factual correctness.
 
 ---
 
@@ -239,10 +274,11 @@
 - [ ] After a second failed attempt on the same exercise, the response includes `correction_level: "partial_attempt_2"` with more specific hints identifying the error type.
 - [ ] After a third failed attempt, the response includes `correction_level: "full_after_attempts"` with the full solution.
 - [ ] If the first attempt succeeds, the response includes `correction_level: "full"` with the full solution + bonus points.
-- [ ] The state machine is deterministic: success on attempt N → `full`; failure on attempt 1 or 2 → `partial`; failure on attempt 3 → `full_after_attempts`.
-- [ ] A test covers all 5 correction states (partial, partial_attempt_2, full, full_after_attempts, plus the "success on first try" case).
+- [ ] The state machine is deterministic: success on attempt N (1 ≤ N ≤ 3) → `full`; failure on attempt 1 or 2 → `partial`; failure on attempt 3 → `full_after_attempts` (no 4th attempt; the student cannot submit again on the same exercise).
+- [ ] A test covers all 4 correction states: `partial`, `partial_attempt_2`, `full`, `full_after_attempts`, plus the "success on first try" case (5 total).
 - [ ] A test verifies that hints on attempt 2 are different from (or richer than) hints on attempt 1.
 - [ ] A test verifies multi-tenant isolation.
+- [ ] A test verifies that an attempt_number > 3 on the same exercise returns 409 (the exercise is closed after `full_after_attempts`).
 
 ### Dependencies
 - s04 (QCM submission).
@@ -253,7 +289,7 @@
 - **Risk (complexity 4)** : the state machine has 4+ states × 2 exercise types = a combinatorial surface. The state diagram and the LLM prompts for hints generation are both error-prone. Mitigation: write the state machine as a pure function, unit-test every transition; use a stub LLM for hint generation tests.
 - **Constraints** :
   - Hints are LLM-generated, not hard-coded — they must be specific to the student's actual answer and the exercise.
-  - The number of attempts is read from `MAX_CORRECTION_ATTEMPTS` env (default 3).
+  - The number of attempts is read from `MAX_CORRECTION_ATTEMPTS` env (default 3). After 3 failed attempts, the exercise is CLOSED — a 4th submission returns 409.
   - The correction level is sent to the client; the client decides how to display it.
 - **Traps** :
   - The "successful on attempt 1" case must NOT trigger any partial state — verify in the test.
@@ -378,21 +414,59 @@
 - [ ] The pseudo is unique (case-insensitive). A duplicate returns 409 with a clear error.
 - [ ] The pseudo is 3-32 chars, alphanumeric + underscore. A violation returns 422.
 - [ ] The password is ≥ 8 chars. A violation returns 422.
-- [ ] A `User` row is created in PostgreSQL with `role='eleve'` by default.
+- [ ] A `User` row is created in PostgreSQL with `role='eleve'` by default (this story covers ONLY the `eleve` role; creation of `parent` and `admin` is in s12b).
 - [ ] A test verifies the happy path and the duplicate-pseudo case.
 
 ### Dependencies
-- PostgreSQL initialized (s01 pre-tâche).
+- PostgreSQL initialized (s01 pré-tâche).
 
 ### Agentic notes
 - **Files involved** : `backend/app/api/auth/register.py`, `backend/app/core/database/models.py` (`User` model), `backend/app/core/auth/passwords.py` (bcrypt wrapper).
 - **Constraints** :
   - JWT is NOT in this story — this is just account creation. Login (token issuance) is a separate story.
   - The `pseudo` is the only identifier — no email, no real name (per PRD § Hors-scope).
+  - This endpoint is public; only `eleve` is creatable via the public path. The `parent` and `admin` roles require a different story (s12b) because they need a different onboarding path.
 - **Traps** :
   - Bcrypt has a 72-byte input limit — pre-hash with SHA-256 if the password is long, or just enforce a 72-byte max.
   - The uniqueness check should be case-insensitive (use `LOWER()` in the SQL).
   - Do NOT log the password, even in error messages.
+
+---
+
+### Story s12b-creer-compte-admin-parent — Créer un compte parent ou admin et mettre à jour un rôle
+
+**As an** admin **I want** créer un compte parent (ou admin) et pouvoir changer le rôle d'un utilisateur existant **so that** les comptes non-élève existent et le RBAC soit testable de bout en bout.
+
+### Complexity
+**3** — Admin-only endpoints + role update + auditability. Split de l'ancien s12 + s14 pour résoudre la dépendance cyclique : s14 (lier parent ↔ enfant) présuppose qu'un compte `parent` existe, ce qui n'était livré par aucune story. Cette story doit précéder s14.
+
+### Acceptance criteria
+- [ ] The endpoint `POST /api/users` (admin only, JWT) accepts `{pseudo, password, role: "parent" | "admin"}` and returns 201 with `{pseudo, role}`.
+- [ ] The endpoint enforces: the authenticated user MUST have `role='admin'`. A non-admin caller gets 403.
+- [ ] The `pseudo` follows the same rules as s12 (3-32 chars, alphanumeric + underscore, unique case-insensitive).
+- [ ] The `User` row is created with the requested role (not forced to `eleve`).
+- [ ] The endpoint `PUT /api/users/{pseudo}/role` (admin only) accepts `{role: "eleve" | "parent" | "admin"}` and updates the role. Returns 200 with the updated user.
+- [ ] An admin cannot demote themselves (the last admin cannot change their own role to `parent` or `eleve`) — returns 409 if attempted.
+- [ ] A test verifies an admin can create a `parent` user.
+- [ ] A test verifies a non-admin caller gets 403 on `POST /api/users`.
+- [ ] A test verifies role update is logged (audit trail entry).
+- [ ] A test verifies multi-tenant behavior: a `parent` user (not admin) gets 403 on these endpoints.
+
+### Dependencies
+- s12 (the `User` model exists).
+- s13 (JWT middleware exists — to verify the `admin` role).
+
+### Agentic notes
+- **Files involved** : `backend/app/api/users/create.py`, `backend/app/api/users/role.py`, `backend/app/core/database/models.py` (extend `User` if needed), `backend/app/api/auth/dependencies.py` (RBAC helper for "admin only").
+- **Constraints** :
+  - This is a SECURITY-CRITICAL story. The admin endpoints MUST be locked down (no public access, even authenticated non-admin).
+  - The password is hashed with bcrypt (reuse s12's wrapper).
+  - For the POC, the `audit trail` is a simple log line (`security.role_change`) — a dedicated `AuditLog` table is a future optimization.
+- **Traps** :
+  - The "last admin" check requires a count query — handle the race condition with a transaction (lock the row, count admins, then update).
+  - Do NOT allow an admin to create a `parent` user with the same `pseudo` as an existing `eleve` (or vice versa) — pseudo uniqueness spans all roles.
+  - The `POST /api/users` endpoint does NOT issue a JWT — the created user must log in via `POST /api/auth/login` (s13) to get a token.
+- **Test strategy** : seed the test database with an `admin` user via a fixture (e.g. environment-driven bootstrap or a migration seed); the test client logs in as that admin to call these endpoints.
 
 ---
 
@@ -438,22 +512,25 @@
 
 ### Acceptance criteria
 - [ ] The endpoint `POST /api/users/{parent_pseudo}/children` with body `{child_pseudo}` creates a `ParentChildLink` row in PostgreSQL.
-- [ ] Only an admin (or the parent themselves, in a follow-up) can create the link — verify via RBAC.
+- [ ] Only an admin (JWT role='admin') or the parent themselves (JWT sub matches `{parent_pseudo}`) can create the link. Any other caller gets 403.
 - [ ] The same child cannot be linked twice to the same parent (idempotency: returns 200 on duplicate, 201 on new).
-- [ ] The endpoint `GET /api/users/{parent_pseudo}/children` returns the list of linked children.
-- [ ] A test verifies a parent can list their children.
+- [ ] The endpoint `GET /api/users/{parent_pseudo}/children` returns the list of linked children. Authorization: admin or the parent themselves.
+- [ ] A test verifies a parent can list their own children.
 - [ ] A test verifies a parent cannot list another parent's children (multi-tenant isolation).
+- [ ] A test verifies a non-admin, non-parent caller gets 403.
 
 ### Dependencies
-- s12 (User rows exist for both parent and child).
+- s12 (eleve User row exists for the child).
+- s12b (parent and admin User rows exist).
 - s13 (auth middleware enforces role).
 
 ### Agentic notes
 - **Files involved** : `backend/app/api/users/parent_child.py`, `backend/app/core/database/models.py` (add `ParentChildLink` model).
 - **Constraints** : The link is many-to-many (a parent can have multiple children, a child can have multiple parents — for blended families or shared custody).
 - **Traps** :
-  - The endpoint URL is `/api/users/{parent_pseudo}/children` — the parent_pseudo in the URL must match the authenticated user (or the user must be an admin).
+  - The endpoint URL is `/api/users/{parent_pseudo}/children` — the `parent_pseudo` in the URL must match the authenticated user (or the user must be an admin). Do not trust the URL value.
   - Cycle detection: in theory, a parent-child link could be cyclic (A is parent of B, B is parent of A). For the POC, no cycle prevention — note as a follow-up.
+  - This story was previously blocked on the absence of a story creating `parent` accounts. The dependency chain is now: s12 → s12b → s13 → s14.
 
 ---
 
@@ -524,7 +601,7 @@
 **As a** parent **I want** voir la progression de chacun de mes enfants **so that** je suive leur travail sans pouvoir le modifier.
 
 ### Complexity
-**2** — Reuse the eleve dashboard with a parent-facing read-only wrapper.
+**3** — Reuse the eleve dashboard with a parent-facing read-only wrapper. La complexité est relevée de 2 à 3 (vs version précédente) car la story cumule : endpoint parent, page liste, page child-detail, vérification read-only, tests d'isolation. Risque explicité ci-dessous.
 
 ### Acceptance criteria
 - [ ] The endpoint `GET /api/dashboard/parent` (JWT auth) returns the dashboards of all children linked to the parent.
@@ -532,6 +609,7 @@
 - [ ] The child-detail view is the same component as the eleve dashboard, but with no edit/action buttons.
 - [ ] A test verifies the parent sees only their linked children.
 - [ ] A test verifies a parent cannot access a non-linked child's data (multi-tenant isolation).
+- [ ] A test verifies all "edit" buttons in the reused component are hidden or disabled in the parent view.
 
 ### Dependencies
 - s14 (parent-child link).
@@ -541,6 +619,7 @@
 ### Agentic notes
 - **Files involved** : `backend/app/api/dashboard/parent.py`, `frontend/app/(dashboard)/parent/page.tsx`, `frontend/app/(dashboard)/parent/[child_pseudo]/page.tsx`.
 - **Constraints** : No write actions on the parent view — buttons for "submit answer", "generate exercise", etc. are absent or disabled.
+- **Risk (complexity 3)** : the "reuse" of the eleve dashboard component is the most error-prone part. The component must accept a `readOnly` prop and disable/hide write affordances. Mitigation: extract the read-only view into its own component first, then re-integrate the write-only parts in the eleve view.
 - **Traps** :
   - The parent JWT must NOT allow accessing `/api/dashboard/eleve/{other_pseudo}` — the URL is `/api/dashboard/parent` and the backend filters by the linked children.
   - The child-detail URL includes the `child_pseudo` for clarity, but the backend MUST verify that the parent is linked to that child before returning data.
@@ -558,7 +637,7 @@
 - [ ] The endpoint `POST /api/evaluations/upload` accepts `multipart/form-data` with `pseudo`, `subject`, and `file` (image).
 - [ ] The LLM vision extracts: `score` (number or "non précisé"), `max_score` (number or "non précisé"), `annotations` (list of strings), `teacher_comments` (string or null).
 - [ ] The extraction uses BOTH a regex (for explicit scores like "12/20") and an LLM call (for unstructured comments).
-- [ ] If neither regex nor LLM finds a score, the system returns the upload with `status: "manual_review_needed"` and prompts the user (or an admin) to enter the score manually.
+- [ ] If neither regex nor LLM finds a score, the system returns the upload with `status: "manual_review_needed"` and prompts the user (or an admin) to enter the score manually (the manual entry path is s18b).
 - [ ] The extracted data is persisted in a `Evaluation` row in PostgreSQL.
 - [ ] A test with a sample image containing "12/20" verifies the regex picks it up.
 - [ ] A test with a sample image (no clear score) verifies the LLM is called and a result is returned (or "manual_review_needed").
@@ -578,6 +657,42 @@
   - The LLM may hallucinate a score when none is visible. The prompt must include "If no score is clearly written, do not guess — reply `SCORE: NONE`."
   - The LLM may extract the wrong number (e.g. "élève noté 12 sur 20" but the actual score is 8 because the 12 is in a different sentence). The regex should anchor on `/<n>\s*\/\s*<m>/` patterns to reduce false positives.
   - A photo with low resolution or bad lighting may yield no text — fall back to "manual_review_needed" without retrying the LLM.
+- **Follow-up** : the manual score entry and LLM reprocess endpoints are in s18b.
+
+---
+
+### Story s18b-evaluation-actions-admin — Saisir ou relancer l'extraction du score d'une évaluation
+
+**As an** admin (ou un parent lié) **I want** saisir manuellement le score d'une copie d'évaluation en `manual_review_needed` (ou relancer l'extraction LLM) **so that** les copies sans score détecté puissent tout de même alimenter les dashboards.
+
+### Complexity
+**2** — Deux endpoints admin + RBAC + transition d'état `manual_review_needed` → `scored`. Split de l'ancien s18 pour fermer la boucle d'extraction de score (sans ces endpoints, les copies non auto-scorées sont des données mortes).
+
+### Acceptance criteria
+- [ ] The endpoint `POST /api/evaluations/{id}/score-manual` (admin or linked parent, JWT) accepts `{score, max_score, teacher_comments?}` and updates the `Evaluation` row. Returns 200 with the updated evaluation.
+- [ ] The endpoint validates that the evaluation is in `manual_review_needed` status; otherwise returns 409 (already scored).
+- [ ] A non-admin, non-linked-parent caller gets 403.
+- [ ] The endpoint `POST /api/evaluations/{id}/reprocess` (admin only, JWT) re-invokes the LLM vision extractor on the original image. Returns 200 with the new extraction result (or `manual_review_needed` if it still fails).
+- [ ] Both endpoints update the `Evaluation.status` to `scored` on success, or leave it as `manual_review_needed` on failure.
+- [ ] A test verifies an admin can manually score an evaluation in `manual_review_needed`.
+- [ ] A test verifies a non-admin, non-parent caller gets 403.
+- [ ] A test verifies multi-tenant isolation: a parent cannot score an evaluation of a non-linked child.
+
+### Dependencies
+- s18 (the `Evaluation` row exists with `manual_review_needed` status).
+- s14 (parent-child link — to authorize the linked parent).
+- s15 (auth + multi-tenant).
+
+### Agentic notes
+- **Files involved** : `backend/app/api/evaluations/score_manual.py`, `backend/app/api/evaluations/reprocess.py`.
+- **Constraints** :
+  - These are admin-first endpoints, with a narrow parent exception (only the parent linked to the student can score the child's evaluation).
+  - Manual score entry is auditable — log `security.evaluation_manual_score` with the admin/parent pseudo, the evaluation_id, and the new score.
+  - The reprocess endpoint reuses the extractor from s18; do not duplicate the LLM call logic.
+- **Traps** :
+  - The `score` and `max_score` MUST be non-negative numbers; `score` MUST be ≤ `max_score`. Validate before persisting.
+  - The reprocess endpoint must NOT delete the previous extraction result — keep the history (or at least a log) for debugging.
+  - A parent can score their child's evaluation, but the "linked" check is in the multi-tenant test — do not forget the `parent_child` link lookup in the authorization path.
 
 ---
 
@@ -619,11 +734,11 @@
 ### Acceptance criteria
 - [ ] Submitting a successful QCM or text answer awards 5 base points.
 - [ ] A first-try success (attempt_number = 1) awards 5 + 2 = 7 points (bonus).
-- [ ] A failed attempt awards 0 points (participation only).
-- [ ] After 3 failed attempts, the full correction is shown but no points are awarded.
+- [ ] A failed attempt awards 0 points (participation only — but the attempt is still recorded in the `Attempt` table).
+- [ ] After 3 failed attempts, the full correction is shown but no points are awarded. The exercise is then CLOSED — a 4th submission returns 409 (see s08).
 - [ ] Points are stored in a `RewardLedger` (immutable log) and a `UserPoints` summary.
 - [ ] The dashboard shows the current points total and the level (e.g. "Apprenti" 0-99, "Confirmé" 100-499, "Expert" 500+).
-- [ ] A test verifies the points awarded for each scenario.
+- [ ] A test verifies the points awarded for each scenario (1st-try success: 7, later success: 5, failure: 0, 3 failures + closed: 0).
 - [ ] A test verifies the ledger is append-only (no UPDATE on existing rows).
 
 ### Dependencies
@@ -636,8 +751,8 @@
   - The ledger is the source of truth. The `UserPoints` summary is a denormalization, recomputable from the ledger.
   - Levels and thresholds are constants for the POC; if changed, recompute all `UserPoints` from the ledger.
 - **Traps** :
-  - The 3-attempt rule means a student can submit the same exercise 4 times (3 fails + 1 final with full solution shown). The ledger must record each, with the points for each.
   - Concurrency: two parallel submissions must not double-count points. Use a DB transaction with row-level locking on `UserPoints`.
+  - The 3-attempt rule means an exercise can have at most 3 attempts (1st failure → 2nd failure → 3rd failure → closed with `full_after_attempts`). Each attempt is recorded in the ledger with its points (always 0 for failed attempts).
 
 ---
 
@@ -645,10 +760,10 @@
 
 ### Story s21-i18n-fr-en — Basculer l'interface entre français et anglais
 
-**As an** utilisateur **I want** basculer l'interface entre français et anglais **so that** l'application soit utilisable dans les deux langues.
+**As a** utilisateur **I want** basculer l'interface entre français et anglais **so that** l'application soit utilisable dans les deux langues.
 
 ### Complexity
-**2** — next-intl setup + message catalogs + backend Accept-Language.
+**3** — next-intl setup + message catalogs + backend Accept-Language. La complexité est relevée de 2 à 3 (vs version précédente) car la story couvre deux surfaces techniques très différentes (frontend next-intl + backend i18n sur les messages d'erreur). Risque explicité.
 
 ### Acceptance criteria
 - [ ] All UI strings come from `frontend/messages/fr.json` and `frontend/messages/en.json` — no hardcoded strings in components.
@@ -666,6 +781,7 @@
 - **Constraints** :
   - For the POC, only FR and EN. Other languages are out of scope (per PRD § Hors-scope).
   - The backend error messages are minimal for the POC; if the messages grow, use a Pydantic + gettext approach.
+- **Risk (complexity 3)** : the two surfaces (frontend next-intl vs backend Accept-Language) have very different toolchains and runtime contracts. Mitigation: define a small JSON message catalog contract for the backend (error codes → messages) and reuse the same catalog format as the frontend for consistency.
 - **Traps** :
   - Do not translate content uploaded by the user (manuscript text, documents) — only UI chrome.
   - Locale routing: the chat page URL can be `/fr/chat` or `/en/chat`, or use a cookie — pick ONE for the POC and stick to it.
@@ -674,7 +790,7 @@
 
 ### Story s22-accessibilite-responsive — Rendre l'interface accessible et responsive (WCAG 2.1 A)
 
-**As a** utilisateur sur smartphone ou tablette **I want** que l'interface soit lisible, navigable au clavier, et conforme aux standards d'accessibilité **so that** je puisse utiliser l'app sans障碍.
+**As a** utilisateur sur smartphone ou tablette **I want** que l'interface soit lisible, navigable au clavier, et conforme aux standards d'accessibilité **so that** je puisse utiliser l'application sur n'importe quel appareil et avec un lecteur d'écran.
 
 ### Complexity
 **3** — Lighthouse audit + ARIA attributes + keyboard navigation + contrast fixes.
@@ -818,7 +934,7 @@
 
 ### Dépendances interphases (transversales)
 
-- **Multi-tenancy** : toute story API (s09, s10, s14, s15, s16, s17, s18, s19, s20) inclut un test d'isolation cross-tenant. La story s15 consolide le middleware ; les stories antérieures peuvent l'utiliser partiellement.
+- **Multi-tenancy** : toute story API (s09, s10, s14, s15, s16, s17, s18, s18b, s19, s20) inclut un test d'isolation cross-tenant. La story s15 consolide le middleware ; les stories antérieures peuvent l'utiliser partiellement.
 - **Observabilité** : les stories s23-s24 retrofitent les stories antérieures. Les stories entre s15 et s22 doivent au minimum logger les requêtes (mais le middleware complet est en s23).
 - **i18n** : à partir de s11, les nouvelles chaînes UI passent par `next-intl`. s21 consolide.
 - **Accessibilité** : à partir de s11, respecter les bonnes pratiques (label, focus, contrast). s22 consolide et audite.
@@ -830,18 +946,30 @@ Les stories candidates `STORY-005` (init monorepo) et `STORY-006` (config LLM) o
 ### Splits
 
 - `STORY-003` (test OCR manuscrit) → pré-tâche de s01 (test d'ingestion incluant une image manuscrite).
-- `STORY-007` (génération QCM) → devient **s03** (story à part entière, livrée indépendamment).
-- `STORY-013` (problèmes maths) + `STORY-014` (flashcards) → fusionnés en **s06** (génération d'exercices libres) pour cette V1. Les flashcards peuvent être une story ultérieure si besoin.
-- `STORY-019` (correction progressive) → devient **s08** (complexity 4, risque explicité).
+- `STORY-007` (génération QCM) → **s03** (story à part entière, livrée indépendamment).
+- `STORY-013` (problèmes maths) + `STORY-014` (flashcards) → splittés en **s06** (problème/rédaction) et **s06b** (flashcards). Le périmètre PRD liste explicitement les flashcards comme type d'exercice à part entière, donc elles ont leur propre story shippable.
+- `STORY-019` (correction progressive) → **s08** (complexity 4, risque explicité).
 - `STORY-021` (dashboards) → splitté en **s16** (eleve) et **s17** (parent) pour limiter la complexité par story.
 - `STORY-022` (historique conversations) → **s19**.
 - `STORY-023` (récompenses) → **s20**.
 - `STORY-024-028` (i18n, obs, a11y, notifications, docs) → **s21 à s26** (5 stories).
 
+### Corrections issues de la review `docs/reviews/stories.md`
+
+- **Critical (flashcards)** : s06b ajoutée pour livrer les flashcards (sinon drop silencieux du périmètre).
+- **Major (comptes non-élève)** : s12b ajoutée pour créer des comptes `parent`/`admin` et mettre à jour un rôle. Sans cette story, s14, s15, s17 n'étaient pas testables. La chaîne de dépendances est maintenant : s12 → s12b → s13 → s14.
+- **Major (endpoints évaluation)** : s18b ajoutée pour livrer `POST /evaluations/{id}/score-manual` et `POST /evaluations/{id}/reprocess`. Le fallback `manual_review_needed` de s18 a maintenant un chemin de remédiation.
+- **Minor s22** : wording nettoyé (caractère chinois parasite supprimé).
+- **Minor s20** : wording clarifié — l'exercice est fermé après 3 tentatives (pas de 4e soumission), chaque tentative est dans le ledger avec ses points (toujours 0 pour les échecs).
+- **Minor s08** : ajout d'un AC vérifiant que `attempt_number > 3` retourne 409 (cohérence avec s20).
+- **Minor s17** : complexité relevée de 2 à 3, risque explicité.
+- **Minor s21** : complexité relevée de 2 à 3, risque explicité.
+- **Minor s06** : référence PRD mise à jour (la question ouverte sur le niveau de détail des problèmes maths est dans la phase Research de cette story, plus une référence stale à STORY-016).
+
 ### Ordre d'exécution suggéré
 
 Phase 1 (POC) : s01 → s02 → s03 → s04.
-Phase 2 (MVP) : s05 → s06 → s07 → s08 → s09 → s10 → s11.
-Phase 3 (Sécurité) : s12 → s13 → s14 → s15.
-Phase 4 (Pédagogie) : s18 → s20 → s16 → s17 → s19. (s18 et s20 en premier car ils produisent les données que les dashboards affichent.)
+Phase 2 (MVP) : s05 → s06 → s06b → s07 → s08 → s09 → s10 → s11.
+Phase 3 (Sécurité) : s12 → s12b → s13 → s14 → s15.
+Phase 4 (Pédagogie) : s18 → s18b → s20 → s16 → s17 → s19. (s18 et s20 en premier car ils produisent les données que les dashboards affichent.)
 Phase 5 (Finalisation) : s21 → s22 → s23 → s24 → s25 → s26.
