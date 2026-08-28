@@ -8,10 +8,11 @@
 La story s01 ne livre **aucun écran UI**. Son interface utilisateur est la ligne de commande : un terminal où l'élève (ou un admin / testeur) tape :
 
 ```
-$ python -m ktutor.cli upload ./cours_derivation.pdf --pseudo ali --subject maths
+python -m ktutor.cli upload ./cours_derivation.pdf --pseudo ali --subject maths
 ```
 
 Cette commande est **l'interface** de la story. Le « design » porte donc sur :
+
 1. **Le contrat de la commande** (forme exacte des arguments, codes retour, messages).
 2. **Le rendu visuel de la sortie terminal** (couleurs, icônes, format, verbosité).
 3. **Les états observables par l'utilisateur** (idle, uploading, indexed, error).
@@ -41,12 +42,15 @@ Pas de composants UI à réutiliser (pas de `<Button>`, pas de `<Input>`) — la
 ## States (5 états observables)
 
 ### 1. `idle` (avant lancement)
+
 ```
-$ python -m ktutor.cli upload <file> --pseudo <p> --subject <s>
+python -m ktutor.cli upload <file> --pseudo <p> --subject <s>
 ```
+
 L'utilisateur tape, le shell attend. Pas de retour applicatif.
 
 ### 2. `uploading` (pendant le traitement)
+
 ```
 ⠋ Lecture de ./cours_derivation.pdf (3.2 Mo)…
 ⠋ Extraction du texte (PyMuPDF)…
@@ -56,9 +60,11 @@ L'utilisateur tape, le shell attend. Pas de retour applicatif.
 ⠼ Indexation dans ChromaDB (collection rag_maths_ali)…
 ⠴ Insertion de la row Document en PostgreSQL…
 ```
+
 Spinner simple, ligne par ligne, pas de barre de progression. Chaque étape reste affichée après fin (log lisible).
 
 ### 3. `success`
+
 ```
 ✓ Document indexé avec succès
 
@@ -75,6 +81,7 @@ Spinner simple, ligne par ligne, pas de barre de progression. Chaque étape rest
 ```
 
 ### 4. `error` (fichier > 20 Mo, format inconnu, etc.)
+
 ```
 ✗ Échec de l'upload
 
@@ -83,7 +90,9 @@ Spinner simple, ligne par ligne, pas de barre de progression. Chaque étape rest
 
 Code de sortie : 2
 ```
+
 OU
+
 ```
 ✗ Échec de l'upload
 
@@ -96,6 +105,7 @@ Code de sortie : 3
 ```
 
 ### 5. `manual_review_needed` (OCR manuscrit à faible confiance)
+
 ```
 ⚠ Indexation partielle — révision manuelle requise
 
@@ -109,6 +119,7 @@ Code de sortie : 3
 
 Code de sortie : 0  (succès partiel, document NON persisté)
 ```
+
 **Note** : `code de sortie 0` parce que la commande s'est exécutée correctement et a refusé proprement. C'est l'AC4 « persists nothing » qui est respecté.
 
 ## Tech mapping (comment la sortie sera produite)
@@ -156,6 +167,7 @@ Code de sortie : 0  (succès partiel, document NON persisté)
 Aucun gap bloquant. Les tokens `success` / `error` / `warning` / `text-secondary` / `accent-warm` couvrent les 5 états observables.
 
 Points d'attention pour une story future (s26 « docs utilisateur » par exemple) :
+
 - Pas de capture d'écran du terminal dans `docs/user-guide/` — il faudra un script qui rejoue la sortie sur un terminal de référence.
 - L'auto-détection `light/dark` de `rich` ne marche que si le terminal annonce correctement son thème. À documenter pour les utilisateurs de Windows Terminal (qui supporte le thème via OSC).
 

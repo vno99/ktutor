@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional, Protocol
+from typing import Protocol
 
 from app.core.database.models import DocumentStatus, Subject
 from app.services.rag.chroma_store import ChromaStore, validate_pseudo
@@ -134,7 +135,7 @@ class UploadService:
                 filename=path.name,
                 data=path.read_bytes(),
             )
-        except Exception as exc:  # noqa: BLE001 — propagate as storage failure
+        except Exception as exc:
             raise UploadError(UploadErrorKind.STORAGE_FAILURE, f"MinIO put_object: {exc}") from exc
 
         # From here on, any failure must clean up the MinIO object (AC4).
@@ -196,7 +197,7 @@ class UploadService:
         except UploadError:
             self._minio.remove_object(minio_key)
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Unknown failure: roll back MinIO and surface as a storage failure
             # so the CLI can show a generic error and the user can retry.
             self._minio.remove_object(minio_key)
@@ -208,7 +209,7 @@ class UploadService:
 
     def _extract_text(
         self, path: Path, document_id: uuid.UUID
-    ) -> tuple[list[Chunk], Optional[float]]:
+    ) -> tuple[list[Chunk], float | None]:
         """Run OCR first if the file is an image; else defer to the ingestor."""
         suffix = path.suffix.lower()
         if suffix in {".png", ".jpg", ".jpeg"}:
@@ -253,7 +254,7 @@ class UploadService:
         minio_key: str,
         chunks_count: int,
         status: DocumentStatus,
-        error_reason: Optional[str],
+        error_reason: str | None,
     ) -> None:
         """Insert the document row. No-op when no session factory is configured."""
         if self._session_factory is None:

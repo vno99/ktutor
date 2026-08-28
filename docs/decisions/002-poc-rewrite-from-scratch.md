@@ -7,6 +7,7 @@
 ## Context
 
 Le repo contient un POC Python fonctionnel :
+
 - `src/main.py` — CLI interactif avec menu textuel (5 options)
 - `src/agents/math_agent.py` — Agent LangChain ReAct avec un outil RAG et un outil calculatrice
 - `src/ingestion/document_loader.py` — PyMuPDFLoader + RecursiveCharacterTextSplitter
@@ -25,12 +26,14 @@ Question : peut-on faire évoluer le POC vers la cible, ou faut-il réécrire ?
 **Réécrire from scratch** (décision utilisateur, 2026-08-28). Le code POC est conservé temporairement dans le repo pour mémoire (jusqu'à ce que le pipeline nettoie), mais tout nouveau code va dans `backend/app/` et `frontend/app/` selon la nouvelle structure.
 
 Les **patterns** du POC qui survivent à la réécriture :
+
 - Le découpage `ingestion / rag / agents / ocr` (les couches existent toujours, elles sont juste déplacées sous `backend/app/services/`).
 - L'usage de `langchain.text_splitter.RecursiveCharacterTextSplitter` avec `chunk_size=1000, chunk_overlap=200` (convention documentée dans `CLAUDE.md`).
 - L'usage de `chromadb.PersistentClient` avec un répertoire de persistance venant d'env.
 - L'isolation ChromaDB par collection nommée `rag_<subject>_<pseudo>` (multi-tenant).
 
 Les **patterns du POC qui ne survivent pas** :
+
 - L'agent ReAct unique → remplacé par un superviseur LangGraph avec agents spécialisés par matière (s05).
 - Le CLI interactif → remplacé par des endpoints FastAPI (s09) et un frontend Next.js (s11).
 - Le singleton `DeepSeekOCR` → remplacé par un client HTTP vers un service OCR séparé (s01 agentic notes).

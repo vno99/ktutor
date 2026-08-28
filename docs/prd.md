@@ -75,6 +75,7 @@ Les collégiens manquent d'un accompagnement pédagogique **personnalisé** entr
 ## Séquentialité POC
 
 **POC = Maths uniquement.** Le Français arrive en **phase 2 starter** (juste après le POC Maths), pour deux raisons :
+
 1. Le scoring de la rédaction (appréciation LLM) demande une qualité de prompt engineering qui sera mieux testée une fois le RAG stabilisé sur les maths.
 2. Le RAG Français a des particularités (textes littéraires longs, citations, niveaux de langue) qui complexifient le pipeline d'indexation.
 

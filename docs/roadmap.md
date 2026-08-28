@@ -8,6 +8,7 @@
 **Objectif** : valider la chaîne RAG + agent + génération d'exercices sur la matière Maths uniquement.
 
 **Périmètre** :
+
 - Pipeline RAG (PDF, image dactylo, image manuscrite via OCR multimodal).
 - 1 agent Maths (LangChain + ChromaDB).
 - Génération de QCM.
@@ -23,6 +24,7 @@ Un élève de collège uploade un document (PDF ou image dactylo OU manuscrite),
 **Objectif** : ouvrir le produit à un usage interactif via API + frontend, et démarrer le Français.
 
 **Périmètre** :
+
 - API FastAPI (chat streaming SSE + upload documents).
 - Frontend minimal (Next.js 16, responsive smartphone/tablette).
 - Agent Français (scoring rédaction par appréciation LLM).
@@ -36,6 +38,7 @@ Un élève de collège uploade un document (PDF ou image dactylo OU manuscrite),
 **Objectif** : ajouter l'authentification et le RBAC pour ouvrir à plusieurs utilisateurs.
 
 **Périmètre** :
+
 - JWT RS256 (login, refresh, logout).
 - PostgreSQL : Users, Roles, parent-child links.
 - Middleware RBAC (admin / parent / élève).
@@ -48,6 +51,7 @@ Un élève de collège uploade un document (PDF ou image dactylo OU manuscrite),
 **Objectif** : activer le cœur pédagogique — correction progressive et évaluations.
 
 **Périmètre** :
+
 - Correction progressive end-to-end (QCM tout-ou-rien + rédaction par appréciation + 3 tentatives max).
 - Upload de copies d'évaluation + extraction score (LLM multimodal).
 - Dashboards élève (scores, exercices tentés, progression par matière).
@@ -61,6 +65,7 @@ Un élève de collège uploade un document (PDF ou image dactylo OU manuscrite),
 **Objectif** : rendre le produit présentable et maintenable.
 
 **Périmètre** :
+
 - i18n (next-intl FR/EN, header Accept-Language côté backend).
 - Observabilité (logs structurés, OpenTelemetry, Prometheus, alerting).
 - Accessibilité (WCAG 2.1 A, tests Lighthouse ≥ 90).

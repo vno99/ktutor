@@ -6,6 +6,7 @@
 ## Stack
 
 ### Backend
+
 - **Langage** : Python 3.12+
 - **Framework HTTP** : FastAPI 0.115+ avec Uvicorn
 - **ORM** : SQLAlchemy 2.0+ + Alembic pour les migrations
@@ -24,6 +25,7 @@
 - **Tests** : `pytest`, `httpx` pour les tests d'API
 
 ### Frontend
+
 - **Framework** : Next.js 16 (App Router)
 - **Langage** : TypeScript
 - **Styling** : Tailwind CSS
@@ -35,6 +37,7 @@
 - **Tests** : Playwright (e2e + a11y via `@axe-core/playwright`)
 
 ### Infrastructure
+
 - **Conteneurisation** : Docker + `docker-compose.yml`
 - **Services** : postgres, redis, minio, chroma (cf. infra)
 - **Pas de Kubernetes, pas de CI/CD prod** — projet local (PRD § Hors-scope)

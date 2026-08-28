@@ -17,6 +17,7 @@
 > **As an** élève **I want** téléverser un PDF ou une image (dactylo ou manuscrite) **so that** le système l'indexe dans mon RAG personnel.
 
 **Acceptance criteria (verbatim) :**
+
 - AC1. Uploading a valid PDF (≤ 20MB) extracts its text, chunks it (`RecursiveCharacterTextSplitter`, `chunk_size=1000`, `overlap=200`), embeds it, and stores the vectors in a ChromaDB collection named `rag_maths_<pseudo>` (one collection per student).
 - AC2. Uploading a typed image (PNG/JPG) calls the multimodal LLM to OCR the text, then runs the same pipeline.
 - AC3. Uploading a handwritten image calls the multimodal LLM with vision capability; if text is recognized, the same pipeline runs.
@@ -106,6 +107,7 @@ Tout est à installer from scratch. Les choix techniques confirmés par `docs/ar
 **Score après lecture du code : 3 (confirmé).**
 
 **Justification du score confirmé :**
+
 - 3 surfaces techniques à intégrer : (1) ingestion multi-format, (2) embeddings (FastEmbed local), (3) persistance ChromaDB + PostgreSQL.
 - Mais : (1) le code est **greenfield** (pas de dette à gérer), (2) les conventions sont déjà fixées par l'architecture, (3) la story a 7 AC bien découpés, (4) un seul agent à faire (pas de multi-agent en s01).
 

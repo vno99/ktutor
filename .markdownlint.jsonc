@@ -1,13 +1,25 @@
 {
   "default": true,
   "MD013": false,           // line-length (we have long tables and code blocks)
-  "MD024": { "siblings_only": true },
+  "MD024": false,           // duplicate headings are STRUCTURAL: every story
+                           // has its own ### Complexity / ### Acceptance
+                           // criteria / ### Dependencies / ### Agentic notes.
+                           // A strict siblings_only rule still flags them.
   "MD033": false,           // allow inline HTML (needed for <picture>, <details>)
   "MD034": false,           // allow bare URLs (used in ADR references)
   "MD036": false,           // allow emphasis as heading in some contexts
+  "MD040": false,           // fenced code blocks without explicit language are
+                           // OK in our docs (ASCII art, pseudo-CLI output, etc.)
   "MD041": false,           // first line doesn't have to be a top-level heading
   "MD046": { "style": "fenced" },
   "MD049": { "style": "underscore" },
   "MD050": { "style": "asterisk" },
-  "MD053": false            // allow duplicate link references in specs that re-link ADR ids
+  "MD053": false,           // allow duplicate link references in specs that re-link ADR ids
+  "MD056": false,           // table-column-count is structural (some ADR tables
+                           // use 5-6 columns by design)
+  "MD060": false            // table-column-style: cosmetic. The default "any"
+                           // style in markdownlint v0.41+ flags tables that are
+                           // consistent in one style but not in the strict sense
+                           // the rule expects. Our tables are valid GFM and
+                           // render fine; no need to enforce a specific style.
 }

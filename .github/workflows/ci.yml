@@ -17,67 +17,59 @@ permissions:
 
 jobs:
   # ─────────────────────────────────────────────────────────────
+  # Build & push SeaweedFS image with S3 credentials baked in
+  # ─────────────────────────────────────────────────────────────
+  build-seaweedfs:
+    name: Build SeaweedFS image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Keep workspace incremental — see backend job for rationale.
+          clean: false
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: backend/tests/fixtures/seaweedfs
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/ktutor/seaweedfs-ci:4.44
+          # Use GHA cache for reads (skip rebuild if image unchanged),
+          # but skip cache-to: the docker driver on GH Actions runners
+          # does NOT support cache export. Builds will be slightly slower
+          # (full rebuild every time) until docker/buildx with a different
+          # driver is configured.
+          cache-from: type=gha
+
+  # ─────────────────────────────────────────────────────────────
   # Backend: Python 3.12 + pytest with service containers
   # ─────────────────────────────────────────────────────────────
   backend:
     name: Backend (pytest)
     runs-on: ubuntu-latest
-    if: hashFiles('backend/requirements.txt') != ''
-    defaults:
-      run:
-        working-directory: backend
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: ktutor
-          POSTGRES_PASSWORD: ktutor_password
-          POSTGRES_DB: ktutor
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ktutor"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-          - 9001:9001
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/ready || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      chroma:
-        image: chromadb/chroma:latest
-        ports:
-          - 8000:8000
-        options: >-
-          --health-cmd "curl -f http://localhost:8000/api/v1/heartbeat || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      deepseek-ocr-2:
-        # Stub: the real service is started by install_deepseek_ocr.bat
-        # in local dev. In CI we expose a stub HTTP echo so the OCR client
-        # gets a valid (if empty) response and the tests that mock httpx
-        # are unaffected. Tests that need the real OCR are marked
-        # @pytest.mark.integration and skipped here.
-        image: kennethreitz/httpbin
-        ports:
-          - 8500:80
+    needs: build-seaweedfs
     env:
+      # Service containers: without a job-level `container:`, services are
+      # accessed via the published ports on localhost. The service labels
+      # (postgres, minio, chroma) are NOT resolvable as DNS in this mode —
+      # only when a `container:` is set at the job level.
       # PostgreSQL
       DATABASE_URL: postgresql://ktutor:ktutor_password@localhost:5432/ktutor
-      # MinIO
-      MINIO_ENDPOINT: localhost:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      # SeaweedFS (S3-compatible, port 8333)
+      MINIO_ENDPOINT: localhost:8333
+      MINIO_ACCESS_KEY: ktutorci
+      MINIO_SECRET_KEY: ktutorci_secret
       MINIO_BUCKET: ktutor-test
       # ChromaDB (HTTP server)
       CHROMA_SERVER_URL: http://localhost:8000
@@ -87,36 +79,124 @@ jobs:
       DEEPSEEK_OCR_URL: http://localhost:8500
       # Test flag
       PYTEST_ADDOPTS: "-ra --strict-markers"
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ktutor
+          POSTGRES_PASSWORD: ktutor_password
+          POSTGRES_DB: ktutor
+        ports:
+          - 5432:5432
+      seaweedfs:
+        # S3-compatible object store. Image is built by the
+        # `build-seaweedfs` job (with credentials baked in) and pulled
+        # from ghcr.io. All-in-one mode: master + volume + filer + s3.
+        # S3 API on port 8333.
+        image: ghcr.io/${{ github.repository_owner }}/ktutor/seaweedfs-ci:4.44
+        ports:
+          - 8333:8333
+      chroma:
+        image: chromadb/chroma:latest
+        ports:
+          - 8000:8000
+      deepseek-ocr-2-stub:
+        # Stub: the real service is started by install_deepseek_ocr.bat
+        # in local dev. In CI we expose a stub HTTP echo so the OCR client
+        # gets a valid (if empty) response and the tests that mock httpx
+        # are unaffected. Tests that need the real OCR are marked
+        # @pytest.mark.integration and skipped here.
+        image: kennethreitz/httpbin
+        ports:
+          - 8500:80
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          # Do NOT run `git clean -ffdx`. Previous runs may have left
+          # files in backend/tests (e.g. the mounted garage.toml fixture)
+          # that the runner cannot remove (EACCES). Keep the workspace
+          # incremental.
+          clean: false
+
+      - name: Detect backend
+        id: detect
+        run: |
+          if [ -f backend/requirements.txt ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip notice
+        if: steps.detect.outputs.exists != 'true'
+        run: |
+          echo "::notice::backend/requirements.txt not found — skipping backend job."
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        if: steps.detect.outputs.exists == 'true'
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: backend
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Lint (ruff)
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: backend
         run: |
           pip install ruff
           ruff check app tests
-        continue-on-error: true   # linter introduced later; don't fail CI before it lands
+        # Ruff is now enforced (no continue-on-error). The config in
+        # backend/pyproject.toml [tool.ruff] documents the few rules we
+        # disable (B008, B017) and why.
+
+      - name: Wait for services
+        if: steps.detect.outputs.exists == 'true'
+        run: |
+          echo "Waiting for postgres, seaweedfs, chroma, deepseek-ocr-2 stub..."
+          for i in {1..60}; do
+            if pg_isready -h localhost -p 5432 -U ktutor >/dev/null 2>&1 \
+              && (echo > /dev/tcp/localhost/8333) 2>/dev/null \
+              && (echo > /dev/tcp/localhost/8000) 2>/dev/null \
+              && (echo > /dev/tcp/localhost/8500) 2>/dev/null; then
+              echo "  all services up after $i seconds"
+              break
+            fi
+            echo "  attempt $i: not ready yet"
+            sleep 1
+          done
+          # Diagnostic dump if not all services came up
+          echo "--- listening ports ---"
+          ss -tln 2>/dev/null || netstat -tln 2>/dev/null || echo "ss/netstat unavailable"
+          echo "--- docker ps (if accessible) ---"
+          docker ps 2>/dev/null || echo "docker ps not available in job container"
+          echo "--- /etc/hosts ---"
+          cat /etc/hosts
+          # Final check with explicit error messages
+          pg_isready -h localhost -p 5432 -U ktutor || { echo "postgres not ready"; exit 1; }
+          (echo > /dev/tcp/localhost/8333) 2>/dev/null || { echo "seaweedfs (S3) not ready on 8333"; exit 1; }
+          (echo > /dev/tcp/localhost/8000) 2>/dev/null || { echo "chroma not ready"; exit 1; }
+          (echo > /dev/tcp/localhost/8500) 2>/dev/null || { echo "deepseek-ocr-2 stub not ready"; exit 1; }
+          echo "All services ready."
 
       - name: Run tests
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: backend
         run: |
           mkdir -p data/chroma_db
-          pytest --cov=app --cov-report=term-missing --cov-fail-under=70 -m "not integration"
+          pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -m "not integration"
 
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: backend/.coverage
@@ -128,39 +208,63 @@ jobs:
   frontend:
     name: Frontend (lint + build)
     runs-on: ubuntu-latest
-    if: hashFiles('frontend/package.json') != ''
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          # See backend job: keep workspace incremental to avoid
+          # EACCES on files left by previous runs.
+          clean: false
+
+      - name: Detect frontend
+        id: detect
+        run: |
+          if [ -f frontend/package.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip notice
+        if: steps.detect.outputs.exists != 'true'
+        run: |
+          echo "::notice::frontend/package.json not found — skipping frontend job."
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        if: steps.detect.outputs.exists == 'true'
+        uses: actions/setup-node@v5
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
         run: npm ci
 
       - name: Lint
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
         run: npm run lint
         continue-on-error: true   # lint introduced in s11
 
       - name: Typecheck
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
         run: npm run typecheck
         continue-on-error: true   # strict TypeScript comes in s11
 
       - name: Build
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
         run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-build
           path: frontend/.next
@@ -172,13 +276,58 @@ jobs:
   docs:
     name: Docs (markdown lint)
     runs-on: ubuntu-latest
-    if: hashFiles('docs/**/*.md') != ''
+    permissions:
+      # Need write to push the auto-fix commit. Scoped to this job only.
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          # See backend job: keep workspace incremental.
+          clean: false
 
-      - name: Lint markdown
-        uses: DavidAnson/markdownlint-cli2-action@v17
+      - name: Detect docs
+        id: detect
+        run: |
+          if compgen -G "docs/**/*.md" > /dev/null || compgen -G "README.md" > /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip notice
+        if: steps.detect.outputs.exists != 'true'
+        run: echo "::notice::no docs or README.md found — skipping docs job."
+
+      - name: Auto-fix markdown
+        if: steps.detect.outputs.exists == 'true'
+        run: |
+          # Run --fix first to handle all the rules that are auto-fixable
+          # (MD022/MD031/MD032 blank lines around headings/lists/fences,
+          # MD014 dollar-sign-before-commands, MD047 trailing newline, etc.).
+          # What remains after --fix is the lint we'll enforce below.
+          npx --yes markdownlint-cli2@0.18.1 \
+            --config .markdownlint.jsonc \
+            --fix \
+            "docs/**/*.md" "README.md" || true
+
+      - name: Commit any auto-fixes
+        if: steps.detect.outputs.exists == 'true'
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "ktutor-bot"
+            git config user.email "ktutor-bot@users.noreply.github.com"
+            git add docs/ README.md .markdownlint.jsonc
+            git commit -m "docs: auto-fix markdown lint violations" || true
+            git push origin main
+            echo "Auto-fixes committed and pushed."
+          else
+            echo "No auto-fixes to commit."
+          fi
+
+      - name: Lint markdown (verify)
+        if: steps.detect.outputs.exists == 'true'
+        uses: DavidAnson/markdownlint-cli2-action@v24
         with:
           globs: |
             docs/**/*.md
@@ -194,7 +343,7 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - name: Check PR title
-        uses: amannn/action-semantic-pull-request@v5
+        uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

@@ -20,6 +20,7 @@ Pour ChromaDB, plusieurs options d'isolation existent :
 Adopter l'**option 1 : une collection par (matière × élève)**, convention de nommage `rag_<subject>_<pseudo>`.
 
 Implémentation : une factory `get_chroma_collection(subject: str, pseudo: str) -> chromadb.Collection` qui :
+
 - Valide le format du `pseudo` (alphanumeric + underscore, 3-32 chars, cf. s12).
 - Construit le nom `rag_<subject>_<pseudo>`.
 - Appelle `client.get_or_create_collection(name=...)`.

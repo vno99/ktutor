@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Protocol
 
-from langchain_community.document_loaders import PyMuPDFLoader  # noqa: F401
+from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
@@ -35,7 +35,7 @@ class Chunk(BaseModel):
 
 
 class _OcrLike(Protocol):
-    def transcribe_image(self, image_path: str) -> "OcrResult": ...
+    def transcribe_image(self, image_path: str) -> OcrResult: ...
 
 
 class OcrResult(BaseModel):  # forward declaration; concrete class lives in ocr.py
@@ -55,7 +55,7 @@ class DocumentIngestor:
         self,
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
-        separators: Optional[list[str]] = None,
+        separators: list[str] | None = None,
     ) -> None:
         self._splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,

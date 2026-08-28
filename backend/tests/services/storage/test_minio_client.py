@@ -9,7 +9,6 @@ create, exact put_object args, error-swallowing remove).
 from __future__ import annotations
 
 import uuid
-from io import BytesIO
 from unittest.mock import MagicMock
 
 import pytest

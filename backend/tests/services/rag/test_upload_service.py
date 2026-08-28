@@ -9,16 +9,14 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Optional
-from unittest.mock import MagicMock
 
 import chromadb
 import pytest
 
 from app.core.database.models import Document, DocumentStatus
 from app.services.rag.chroma_store import ChromaStore
-from app.services.rag.ingestion import Chunk, DocumentIngestor
-from app.services.rag.ocr import MultimodalOcr, OcrResult
+from app.services.rag.ingestion import DocumentIngestor
+from app.services.rag.ocr import MultimodalOcr
 from app.services.rag.upload_service import (
     ALLOWED_EXTENSIONS,
     UploadError,
@@ -27,7 +25,6 @@ from app.services.rag.upload_service import (
 )
 from app.services.storage.minio_client import MinioClient
 from tests.services.storage.test_minio_client import FakeMinio
-
 
 # ---------------------------------------------------------------------------
 # Shared doubles
@@ -215,7 +212,7 @@ class TestManualReviewNeeded:
             )
 
         pseudo = f"u_{uuid.uuid4().hex[:10]}"
-        service, fake_minio, _, _, sessions = _build_service(ocr_transport=httpx.MockTransport(handler))
+        service, _fake_minio, _, _, sessions = _build_service(ocr_transport=httpx.MockTransport(handler))
         result = service.upload(str(typed_image_path), pseudo, "maths")
 
         assert result.status is DocumentStatus.MANUAL_REVIEW_NEEDED

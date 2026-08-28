@@ -9,6 +9,7 @@
 Le PRD exige un frontend responsive (smartphone ≥ 360px, tablette ≥ 768px), accessible (WCAG 2.1 A minimum), i18n français par défaut + anglais, et un chatbot qui streame les réponses LLM. Le POC n'a pas de frontend (CLI uniquement).
 
 Plusieurs choix s'offrent :
+
 - Next.js 16 App Router (le PRD l'impose, mais l'App Router vs Pages Router reste à choisir)
 - Vite + React (plus léger, mais perd le SSR, l'i18n intégré, le routing)
 - SvelteKit / Remix (alternatives)

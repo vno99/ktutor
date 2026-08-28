@@ -30,4 +30,6 @@ langchain-community>=0.3
 # Tests
 pytest>=8.0
 pytest-asyncio>=0.23
+pytest-cov>=5.0
 respx>=0.21
+reportlab>=4.0   # PDF fixtures for test_ingestion.py

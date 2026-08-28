@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Optional
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,7 +12,6 @@ from app.services.rag.ingestion import (
     Chunk,
     DocumentIngestor,
     OcrResult,
-    SCANNED_PDF_MIN_CHARS,
 )
 
 

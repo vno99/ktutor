@@ -16,9 +16,9 @@ import chromadb
 import pytest
 
 from app.services.rag.chroma_store import (
+    PSEUDO_RE,
     ChromaStore,
     InvalidPseudoError,
-    PSEUDO_RE,
     collection_name,
     validate_pseudo,
 )

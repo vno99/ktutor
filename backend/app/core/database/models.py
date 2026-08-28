@@ -5,10 +5,8 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import DateTime, Enum, Integer, String, func
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -63,7 +61,7 @@ class Document(Base):
         nullable=False,
         default=DocumentStatus.INDEXED,
     )
-    error_reason: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    error_reason: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

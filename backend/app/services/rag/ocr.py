@@ -21,10 +21,10 @@ import base64
 import json
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 LOW_CONFIDENCE_THRESHOLD = 0.5
 """Below this, the transcription is considered unreliable and rejected."""
@@ -45,7 +45,7 @@ class OcrResult(BaseModel):
     ok: bool
     transcription: str = ""
     confidence: float = 0.0
-    reason: Optional[str] = None
+    reason: str | None = None
     ocr_type: str = ""
     has_math: bool = False
 
@@ -66,7 +66,7 @@ class MultimodalOcr:
         self,
         base_url: str = "http://localhost:8500",
         timeout: float = DEFAULT_TIMEOUT,
-        transport: Optional[httpx.BaseTransport] = None,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
@@ -82,7 +82,7 @@ class MultimodalOcr:
         prompt = _build_prompt()
         payload = {"image_b64": data_b64, "prompt": prompt}
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(2):
             response_text = self._post(payload)
             parsed = _try_parse_json(response_text)

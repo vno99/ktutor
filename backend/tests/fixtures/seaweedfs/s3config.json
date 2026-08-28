@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "ktutor-ci",
+      "credentials": [
+        {
+          "accessKey": "ktutorci",
+          "secretKey": "ktutorci_secret"
+        }
+      ],
+      "actions": ["Read", "Write", "List", "Tagging", "Admin"]
+    }
+  ]
+}

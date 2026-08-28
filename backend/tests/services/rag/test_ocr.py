@@ -15,9 +15,8 @@ import pytest
 
 from app.services.rag.ocr import (
     LOW_CONFIDENCE_THRESHOLD,
-    OcrError,
-    OcrResult,
     MultimodalOcr,
+    OcrError,
 )
 
 

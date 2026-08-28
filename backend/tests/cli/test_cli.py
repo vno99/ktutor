@@ -10,8 +10,6 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
-from typing import Optional
-from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
@@ -28,7 +26,6 @@ from app.services.rag.upload_service import (
     UploadError,
     UploadErrorKind,
 )
-
 
 runner = CliRunner()
 
@@ -229,5 +226,12 @@ class TestCliSurface:
     def test_upload_help_works(self) -> None:
         result = runner.invoke(app, ["upload", "--help"])
         assert result.exit_code == 0
-        assert "--pseudo" in result.stdout
-        assert "--subject" in result.stdout
+        # Use result.output (stdout+stderr combined) rather than result.stdout:
+        # in CI environments with no TTY, typer may route help to stderr,
+        # and rich emits ANSI escape codes that pollute the substring search.
+        # Strip ANSI before asserting.
+        import re
+
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--pseudo" in text
+        assert "--subject" in text

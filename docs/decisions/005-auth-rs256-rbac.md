@@ -9,6 +9,7 @@
 Le PRD exige une authentification JWT avec trois rôles (admin / parent / élève), identifiés par pseudo. Le CLAUDE.md précise RS256 (asymétrique) et un RBAC strict par endpoint.
 
 Questions :
+
 - Quel algorithme de signature ?
 - Quels claims dans le JWT ?
 - Comment représenter le RBAC ?

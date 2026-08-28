@@ -22,3 +22,12 @@ asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning:langchain_community",
 ]
+
+[tool.ruff]
+# Ruff linter config. Rules to ignore are documented inline.
+# B008: typer.Argument(...) in argument defaults is the IDIOMATIC typer
+#       pattern (the sentinel is the ArgumentInfo object itself). False positive.
+# B017: we use pytest.raises(Exception) for generic config-error tests
+#       in tests/core/test_config.py; we accept the trade-off for now.
+line-length = 120
+lint.ignore = ["B008", "B017"]

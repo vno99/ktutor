@@ -13,16 +13,11 @@ Exit codes (see ``docs/designs/s01-uploader-document.md`` § Conventions):
 
 from __future__ import annotations
 
-import json
-import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.spinner import Spinner
-from rich.status import Status
 from rich.table import Table
 
 from app.core.config import get_settings
@@ -156,7 +151,7 @@ def upload(
             service = _build_service()
         except UploadError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Service initialization failed (MinIO / Postgres / Chroma unreachable).
             # Surface as a storage failure so the user sees exit code 4.
             raise UploadError(
@@ -186,7 +181,7 @@ def upload(
         raise typer.Exit(code=mapping.get(exc.kind, EXIT_GENERIC_ERROR)) from exc
     except SystemExit:
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _print_error(UploadErrorKind.STORAGE_FAILURE, f"Erreur inattendue: {exc}", json_output=json_output)
         raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
 
