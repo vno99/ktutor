@@ -1,0 +1,62 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+keys/
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.egg
+
+# Data / persistence
+chroma_data/
+data/postgres/
+data/redis/
+data/minio/
+backend/chroma_data/
+backend/data/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+.parcel-cache/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+$RECYCLE.BIN/
+
+# Logs
+*.log
+logs/
+
+# Local artifacts
+tmp/
+uploads/
+*.tmp
