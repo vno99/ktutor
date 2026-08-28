@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>ktutor — CLI upload (s01 mockup)</title>
+<style>
+  :root {
+    /* Tokens copiés depuis docs/design-system.md */
+    --color-primary: #3D5AFE;
+    --color-primary-strong: #1E2A8A;
+    --color-canvas: #FAFBFC;
+    --color-surface: #FFFFFF;
+    --color-surface-subtle: #F4F6FA;
+    --color-border: #E2E6EE;
+    --color-text-primary: #0D0F14;
+    --color-text-secondary: #5B6472;
+    --color-text-tertiary: #8B95A3;
+    --color-accent-warm: #FF6B4A;
+    --color-success: #16A34A;
+    --color-warning: #D97706;
+    --color-error: #DC2626;
+    --color-info: #0284C7;
+    /* Spacing & radius */
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --shadow-default: 0 2px 4px 0 rgba(13,15,20,0.06), 0 1px 2px 0 rgba(13,15,20,0.04);
+    --shadow-md: 0 4px 12px 0 rgba(13,15,20,0.08);
+    /* Fonts (tokens de l'archi) */
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 16px;
+    background: var(--color-canvas);
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+    font-size: 24px;
+    line-height: 1.2;
+    letter-spacing: -0.011em;
+    color: var(--color-primary-strong);
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--color-text-secondary);
+    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+    margin-bottom: 32px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  @media (min-width: 768px) {
+    .grid { grid-template-columns: 1fr 1fr; }
+    .span-2 { grid-column: 1 / -1; }
+  }
+  .state {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-default);
+    overflow: hidden;
+  }
+  .state-header {
+    padding: 12px 16px;
+    background: var(--color-surface-subtle);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .state-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+    font-weight: 600;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+  }
+  .badge.idle { background: var(--color-surface-subtle); color: var(--color-text-secondary); }
+  .badge.uploading { background: #DBEAFE; color: var(--color-info); }
+  .badge.success { background: #DCFCE7; color: var(--color-success); }
+  .badge.error { background: #FEE2E2; color: var(--color-error); }
+  .badge.warning { background: #FEF3C7; color: var(--color-warning); }
+  .terminal {
+    padding: 20px;
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    color: var(--color-text-primary);
+  }
+  .prompt { color: var(--color-primary); }
+  .ok { color: var(--color-success); font-weight: 600; }
+  .ko { color: var(--color-error); font-weight: 600; }
+  .warn { color: var(--color-warning); font-weight: 600; }
+  .muted { color: var(--color-text-secondary); }
+  .dim { color: var(--color-text-tertiary); }
+  .warm { color: var(--color-accent-warm); font-weight: 600; }
+  .info { color: var(--color-info); }
+  .key { color: var(--color-text-secondary); display: inline-block; min-width: 90px; }
+  .footer {
+    text-align: center;
+    color: var(--color-text-tertiary);
+    font-size: 12px;
+    margin-top: 32px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+  }
+</style>
+</head>
+<body>
+
+<h1>ktutor — CLI `upload` (s01 mockup)</h1>
+<p class="subtitle">5 états observables — tokens stricts depuis <code>docs/design-system.md</code></p>
+
+<div class="grid">
+
+  <!-- 1. IDLE -->
+  <div class="state">
+    <div class="state-header">
+      <span class="state-label">1. idle</span>
+      <span class="badge idle">avant lancement</span>
+    </div>
+    <div class="terminal"><span class="prompt">$</span> python -m ktutor.cli upload <span class="muted">&lt;file&gt; --pseudo &lt;p&gt; --subject &lt;s&gt;</span>
+<span class="dim"># l'utilisateur tape, le shell attend ; aucun retour applicatif</span></div>
+  </div>
+
+  <!-- 2. UPLOADING -->
+  <div class="state span-2">
+    <div class="state-header">
+      <span class="state-label">2. uploading</span>
+      <span class="badge uploading">en cours</span>
+    </div>
+    <div class="terminal"><span class="info">⠋</span> Lecture de ./cours_derivation.pdf <span class="muted">(3.2 Mo)…</span>
+<span class="info">⠙</span> Extraction du texte <span class="muted">(PyMuPDF)…</span>
+<span class="info">⠹</span> Découpage en chunks <span class="muted">(RecursiveCharacterTextSplitter, 1000/200)…</span>
+<span class="info">⠸</span> Vectorisation <span class="muted">(FastEmbed, 384 dims)…</span>
+<span class="info">⠼</span> Indexation dans ChromaDB <span class="muted">(collection rag_maths_ali)…</span>
+<span class="info">⠴</span> Insertion de la row Document en PostgreSQL…</div>
+  </div>
+
+  <!-- 3. SUCCESS -->
+  <div class="state">
+    <div class="state-header">
+      <span class="state-label">3. success</span>
+      <span class="badge success">indexed</span>
+    </div>
+    <div class="terminal"><span class="ok">✓</span> Document indexé avec succès
+
+  <span class="key">Fichier</span>       : ./cours_derivation.pdf
+  <span class="key">Pseudo</span>        : ali
+  <span class="key">Matière</span>       : maths
+  <span class="key">Collection</span>    : rag_maths_ali
+  <span class="key">Chunks</span>        : <span class="warm">87</span>
+  <span class="key">Embedding dim</span> : 384
+  <span class="key">Document ID</span>   : 7a3c1f2e-4b5d-4e8a-9c1b-2d3e4f5a6b7c
+  <span class="key">Durée</span>         : 4.2 s
+
+<span class="ok">✓</span> 10 points ajoutés au profil.</div>
+  </div>
+
+  <!-- 4. ERROR -->
+  <div class="state">
+    <div class="state-header">
+      <span class="state-label">4. error</span>
+      <span class="badge error">exit ≠ 0</span>
+    </div>
+    <div class="terminal"><span class="ko">✗</span> Échec de l'upload
+
+  <span class="key">Fichier</span> : gros_cours.pdf
+  <span class="key">Raison</span>  : taille 24.7 Mo supérieure à la limite (20 Mo)
+
+<span class="muted">Code de sortie : 2</span>
+<span class="dim"># aucun document persisté (AC4 respecté)</span></div>
+  </div>
+
+  <!-- 5. MANUAL_REVIEW_NEEDED -->
+  <div class="state span-2">
+    <div class="state-header">
+      <span class="state-label">5. manual_review_needed</span>
+      <span class="badge warning">OCR faible confiance</span>
+    </div>
+    <div class="terminal"><span class="warn">⚠</span> Indexation partielle — révision manuelle requise
+
+  <span class="key">Fichier</span>       : exercice_manuscrit.jpg
+  <span class="key">Matière</span>       : maths
+  <span class="key">Chunks</span>        : 0
+  <span class="key">Confiance OCR</span> : <span class="warn">0.32</span> <span class="muted">(seuil 0.50)</span>
+
+  <span class="muted">La copie manuscrite n'a pas pu être transcrite avec une confiance suffisante.</span>
+  <span class="muted">Aucun document n'a été persisté. Pour réessayer, améliore la qualité de la photo.</span>
+
+<span class="muted">Code de sortie : 0  (succès partiel, document NON persisté)</span></div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Mockup statique — Ne pas copier dans la prod. La sortie réelle sera générée par <code>rich</code>.<br>
+  Tokens stricts : <code>docs/design-system.md</code> § Couleurs + § Typographie (mono).
+</div>
+
+</body>
+</html>
