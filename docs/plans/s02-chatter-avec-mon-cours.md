@@ -161,6 +161,7 @@ Issues de la recherche § Open questions, tranchées en checkpoint avec l'utilis
 ## Files touched
 
 **Code (5 fichiers modifiés, 4 nouveaux)** :
+
 - `backend/app/core/config.py` (modifié, +6 lignes)
 - `backend/.env.example` (modifié, +6 lignes)
 - `backend/app/services/rag/upload_service.py` (modifié, 1-2 lignes)
@@ -172,6 +173,7 @@ Issues de la recherche § Open questions, tranchées en checkpoint avec l'utilis
 - `backend/app/services/agents/maths_agent.py` (nouveau, ~80 lignes)
 
 **Test (4 nouveaux, 1 étendu)** :
+
 - `backend/tests/services/rag/test_retriever.py` (nouveau, 5 tests)
 - `backend/tests/services/agents/test_maths_agent.py` (nouveau, 7 tests)
 - `backend/tests/services/llm/test_client.py` (nouveau, 3 tests)
@@ -180,9 +182,11 @@ Issues de la recherche § Open questions, tranchées en checkpoint avec l'utilis
 - `backend/tests/core/test_config.py` (étendu, +2 tests config)
 
 **Doc (1 fichier mineur)** :
+
 - `docs/architecture.md` (modifié, 1 ligne : confirmer l'emplacement de `services/llm/`)
 
 **Non touchés** :
+
 - `backend/app/services/storage/minio_client.py` (s01, intact)
 - `backend/app/services/rag/ocr.py` (s01, intact)
 - `backend/app/services/rag/embeddings.py` (s01, intact — réutilisé tel quel)

@@ -121,6 +121,7 @@ metadata:
 **Score donné dans `docs/stories.md` : 3.** Score confirmé après lecture du code : **3**.
 
 Pas de divergence. Les pièces sont en place (embeddings, ChromaStore, chunking). Le nouveau code se résume à :
+
 - 1 retriever (méthode `query(subject, pseudo, question, k=4)` qui embed + appelle `chroma.query`).
 - 1 client LLM (factory `build_llm(provider, settings)` → ChatModel).
 - 1 agent (méthode `ask(subject, pseudo, question)` qui retrieve + prompt + LLM).
@@ -130,6 +131,7 @@ Pas de divergence. Les pièces sont en place (embeddings, ChromaStore, chunking)
 C'est un slice bien découpé, sans risque de combinatorial explosion (vs s08 qui a un state machine à 4 états × 2 types d'exercices).
 
 Si on devait splitter, le cut naturel serait :
+
 - **s02a** : retriever ChromaDB (embed question + top-k chunks) — shippable, testable seul, sans LLM.
 - **s02b** : maths_agent (retriever + LLM + prompt) + CLI `chat`.
 
@@ -142,6 +144,7 @@ Pas de split (verdict 3). Si une complexité inattendue émerge au planning (ex.
 ## Files touched (anticipated)
 
 **Code (5-6 fichiers nouveaux ou modifiés)** :
+
 - `backend/app/core/config.py` (modifié) : ajout `llm_api_key`, `llm_base_url`, `llm_model`, `chat_temperature`, `chat_top_k`, `similarity_threshold_no_doc`.
 - `backend/app/services/rag/retriever.py` (nouveau) : `Retriever` class + Protocol `_RetrieverLike`.
 - `backend/app/services/llm/client.py` (nouveau) : `LlmClient` Protocol + `build_llm_client(provider, settings)` factory.
@@ -151,16 +154,19 @@ Pas de split (verdict 3). Si une complexité inattendue émerge au planning (ex.
 - `backend/app/services/rag/chroma_store.py` (modifié) : ajouter méthode `query(collection, query_embeddings, n_results)` (utilitaire) OU la query se fait directement dans le retriever.
 
 **Test (3-4 nouveaux)** :
+
 - `backend/tests/services/rag/test_retriever.py` (3-4 tests : top-k, cross-tenant, no document, mauvais subject).
 - `backend/tests/services/agents/test_maths_agent.py` (5-6 tests : stub LLM, sources citées, fallback no document, cross-tenant, prompt contient les chunks, temperature=0).
 - `backend/tests/cli/test_cli.py` (étendu : 3-4 tests : `chat` exit 0, JSON output, `--pseudo` invalide, pas de document).
 - `backend/tests/services/llm/test_client.py` (2-3 tests : factory par provider, fallback si provider inconnu).
 
 **Doc** :
+
 - `docs/architecture.md` (modifié, mineure) : confirmer l'emplacement de `services/llm/` (si retenu).
 - Pas d'ADR nouveau (les décisions s'inscrivent dans les ADR existants : 002 POC rewrite, 003 LangGraph, 004 RAG isolation).
 
 **Non touchés** :
+
 - `backend/app/services/storage/minio_client.py` (s01, intact).
 - `backend/app/services/rag/ocr.py` (s01, intact).
 - `backend/app/services/rag/embeddings.py` (s01, intact, juste consommé par le retriever).

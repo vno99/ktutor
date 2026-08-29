@@ -18,6 +18,7 @@
 ## Plan → diff check (13 tasks)
 
 All 13 plan tasks are present:
+
 - Étape 0 (config + filename metadata) — done (`config.py` 6 new fields; `_to_chroma_dict` extended to take `filename`).
 - Étape 1 (LLM client) — `services/llm/client.py` with `LlmClient` Protocol, `_LangChainChatWrapper`, `build_llm_client`.
 - Étape 2 (Retriever) — `services/rag/retriever.py` with `RetrievedChunk`, `Retriever`. Multi-tenant invariant respected: only `query(subject, pseudo, question, k)`, no `collection_name` path.
