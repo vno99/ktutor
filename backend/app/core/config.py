@@ -36,11 +36,11 @@ class Settings(BaseSettings):
     deepseek_ocr_url: str = "http://localhost:8500"
     deepseek_ocr_timeout: int = 60
 
-    # File Storage
-    minio_endpoint: str = "localhost:9000"
-    minio_access_key: str = "ktutor"
-    minio_secret_key: str = "ktutor-secret"
-    minio_bucket: str = "assistant-documents"
+    # File Storage (S3-compatible, SeaweedFS in local dev / CI)
+    s3_endpoint: str = "localhost:8333"
+    s3_access_key: str = "ktutorci"
+    s3_secret_key: str = "ktutorci_secret"
+    s3_bucket: str = "assistant-documents"
 
     # Uploads
     max_upload_size_mb: int = 20

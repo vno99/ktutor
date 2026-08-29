@@ -1,1 +1,1 @@
-"""Storage services (MinIO client, file handling)."""
+"""Storage services (S3 / SeaweedFS client, file handling)."""

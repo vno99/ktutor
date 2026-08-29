@@ -49,7 +49,7 @@ class _StubService:
                 duration_ms=1234,
                 status=DocumentStatus.INDEXED,
                 collection=f"rag_{subject}_{pseudo}",
-                minio_key=f"students/{pseudo}/stub",
+                s3_key=f"students/{pseudo}/stub",
             )
         if self.behavior == "manual_review":
             return UploadResult(
@@ -58,7 +58,7 @@ class _StubService:
                 duration_ms=500,
                 status=DocumentStatus.MANUAL_REVIEW_NEEDED,
                 collection="",
-                minio_key="students/ali/stub",
+                s3_key="students/ali/stub",
                 ocr_confidence=0.2,
             )
         if self.behavior == "invalid_pseudo":
@@ -205,9 +205,9 @@ class TestInitFailure:
     def test_build_service_failure_returns_4(
         self, sample_pdf_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # _build_service raises before the service is constructed; e.g. MinIO down.
+        # _build_service raises before the service is constructed; e.g. S3 down.
         def _boom():
-            raise ConnectionError("MinIO unreachable")
+            raise ConnectionError("S3 unreachable")
 
         monkeypatch.setattr("app.cli._build_service", _boom)
         result = runner.invoke(

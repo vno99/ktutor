@@ -67,10 +67,10 @@ jobs:
       # PostgreSQL
       DATABASE_URL: postgresql://ktutor:ktutor_password@localhost:5432/ktutor
       # SeaweedFS (S3-compatible, port 8333)
-      MINIO_ENDPOINT: localhost:8333
-      MINIO_ACCESS_KEY: ktutorci
-      MINIO_SECRET_KEY: ktutorci_secret
-      MINIO_BUCKET: ktutor-test
+      S3_ENDPOINT: localhost:8333
+      S3_ACCESS_KEY: ktutorci
+      S3_SECRET_KEY: ktutorci_secret
+      S3_BUCKET: ktutor-test
       # ChromaDB (HTTP server)
       CHROMA_SERVER_URL: http://localhost:8000
       # LLM / vision

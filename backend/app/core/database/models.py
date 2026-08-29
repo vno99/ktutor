@@ -54,7 +54,7 @@ class Document(Base):
         nullable=False,
     )
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
-    minio_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
     chunks_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, name="document_status_enum", native_enum=False, length=32),

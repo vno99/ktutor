@@ -20,7 +20,7 @@
 - **Document processing** : PyMuPDF (PDF), `python-docx` (DOCX), PIL (images)
 - **OCR manuscrit** : LLM multimodal (GPT-4o / Gemini) avec Tesseract en fallback pour le texte imprimé
 - **Task queue** : Celery + Redis (pour l'OCR, l'indexation, les extractions longues)
-- **File storage** : MinIO (S3-compatible), préfixe par élève
+- **File storage** : SeaweedFS (S3-compatible), préfixe par élève
 - **Observabilité** : `loguru` (logs JSON structurés), OpenTelemetry (traces), Prometheus (`prometheus-client` pour `/metrics`)
 - **Tests** : `pytest`, `httpx` pour les tests d'API
 
@@ -39,7 +39,7 @@
 ### Infrastructure
 
 - **Conteneurisation** : Docker + `docker-compose.yml`
-- **Services** : postgres, redis, minio, chroma (cf. infra)
+- **Services** : postgres, redis, seaweedfs, chroma (cf. infra)
 - **Pas de Kubernetes, pas de CI/CD prod** — projet local (PRD § Hors-scope)
 
 ## Repo structure (cible)
@@ -150,7 +150,7 @@ ktutor/
 
 - **PostgreSQL** : toutes les tables métier ont une colonne `student_pseudo` (FK vers `users.pseudo` ou `parent_child_links`). Toutes les requêtes filtrent par `student_pseudo` extrait du JWT (jamais du body ou de l'URL).
 - **ChromaDB** : convention de nommage `rag_<subject>_<pseudo>`. Factory `get_chroma_collection(subject, pseudo)` (cf. ADR 004).
-- **MinIO** : préfixe de clé `students/<pseudo>/<document_id>`. `document_id` est un UUID, pas un nom de fichier.
+- **SeaweedFS (S3)** : préfixe de clé `students/<pseudo>/<document_id>`. `document_id` est un UUID, pas un nom de fichier. Le SDK Python `minio>=7.2` (compatible S3) est utilisé.
 - **JWT** : `sub` = pseudo, `role` = "eleve" | "parent" | "admin". Middleware FastAPI vérifie le `pseudo` du JWT contre le `pseudo` de l'URL/body.
 - **Tests d'isolation** : pour chaque endpoint accédant à des données élève, au moins un test vérifie qu'un élève A ne peut pas lire/écrire les données d'un élève B (JWT swap).
 
@@ -180,7 +180,7 @@ documents (
   filename,
   chunks_count,
   status ("indexed" | "error" | "manual_review_needed"),
-  minio_key,
+  s3_key,
   created_at
 )
 
@@ -211,7 +211,7 @@ evaluations (
   id UUID PK,
   student_pseudo FK,
   subject,
-  source_image_minio_key,
+  source_image_s3_key,
   extracted_score FLOAT,
   max_score FLOAT,
   annotations JSONB,
@@ -272,7 +272,7 @@ notifications (
 |---|---|---|---|
 | **PostgreSQL** | users, exercices, évaluations, conversations, ledger, notifications | docker-compose, port 5432 | oui (changer mot de passe, volume) |
 | **Redis** | Celery broker, cache de sessions, JWT refresh blacklist | docker-compose, port 6379 | oui |
-| **MinIO** | fichiers uploadés (PDFs, images) | docker-compose, port 9000 | oui (credentials) |
+| **SeaweedFS (S3)** | fichiers uploadés (PDFs, images) | docker-compose, port 8333 | oui (credentials) |
 | **ChromaDB** | vector store par (matière × élève) | filesystem (`./chroma_data`) | non (à migrer vers Chroma server) |
 | **Celery** | tâches asynchrones (OCR, indexation, extraction score) | broker = Redis | oui |
 | **OpenTelemetry** | traces vers console (local) ou OTLP (env) | exporter console | oui |

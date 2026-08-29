@@ -17,7 +17,7 @@ Le repo contient un POC Python fonctionnel :
 - `requirements.txt` — langchain 0.3, langchain-openai, langgraph, chromadb, pymupdf, fastapi
 - `test_quick.py` — script de validation
 
-Le PRD demande une architecture cible très différente : multi-agents supervisé par LangGraph, FastAPI avec JWT RS256, frontend Next.js 16, multi-tenant strict par élève, PostgreSQL pour les users, Celery pour les tâches lourdes, MinIO pour les fichiers, RBAC admin/parent/élève, observabilité (logs structurés, OTel, Prometheus).
+Le PRD demande une architecture cible très différente : multi-agents supervisé par LangGraph, FastAPI avec JWT RS256, frontend Next.js 16, multi-tenant strict par élève, PostgreSQL pour les users, Celery pour les tâches lourdes, SeaweedFS (S3-compatible) pour les fichiers, RBAC admin/parent/élève, observabilité (logs structurés, OTel, Prometheus).
 
 Question : peut-on faire évoluer le POC vers la cible, ou faut-il réécrire ?
 

@@ -52,13 +52,13 @@ console = Console()
 
 def _build_service() -> UploadService:
     settings = get_settings()
-    minio_client = MinioClient(
-        endpoint=settings.minio_endpoint,
-        access_key=settings.minio_access_key,
-        secret_key=settings.minio_secret_key,
-        bucket=settings.minio_bucket,
+    s3_client = MinioClient(
+        endpoint=settings.s3_endpoint,
+        access_key=settings.s3_access_key,
+        secret_key=settings.s3_secret_key,
+        bucket=settings.s3_bucket,
     )
-    minio_client.ensure_bucket()
+    s3_client.ensure_bucket()
     chroma = ChromaStore(persist_directory=settings.chroma_persist_directory)
     embeddings = build_embedding_provider(
         llm_provider=settings.llm_provider,
@@ -70,7 +70,7 @@ def _build_service() -> UploadService:
     )
     db_session.init_db()
     return UploadService(
-        minio_client=minio_client,
+        s3_client=s3_client,
         chroma_store=chroma,
         embeddings=embeddings,
         ingestor=DocumentIngestor(),
@@ -89,7 +89,7 @@ def _print_summary(result, *, quiet: bool, json_output: bool) -> None:
                 "chunks_count": result.chunks_count,
                 "duration_ms": result.duration_ms,
                 "collection": result.collection,
-                "minio_key": result.minio_key,
+                "s3_key": result.s3_key,
                 "ocr_confidence": result.ocr_confidence,
             }
         )
@@ -152,7 +152,7 @@ def upload(
         except UploadError:
             raise
         except Exception as exc:
-            # Service initialization failed (MinIO / Postgres / Chroma unreachable).
+            # Service initialization failed (S3 / Postgres / Chroma unreachable).
             # Surface as a storage failure so the user sees exit code 4.
             raise UploadError(
                 UploadErrorKind.STORAGE_FAILURE,
@@ -165,7 +165,7 @@ def upload(
             with with_status.status("[bold blue]Initialisation…[/bold blue]", spinner="dots"):
                 pass  # nothing to do, just signal progress
             with with_status.status(
-                "[bold blue]Push MinIO + indexation ChromaDB…[/bold blue]", spinner="dots"
+                "[bold blue]Push S3 + indexation ChromaDB…[/bold blue]", spinner="dots"
             ):
                 result = _run()
         else:
