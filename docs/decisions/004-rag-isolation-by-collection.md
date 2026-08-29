@@ -6,7 +6,7 @@
 
 ## Context
 
-Le PRD exige une isolation multi-tenant stricte : un élève A ne doit JAMAIS voir les documents d'un élève B, ni dans ChromaDB, ni dans PostgreSQL, ni dans MinIO, ni via le JWT. C'est une exigence de sécurité et un test d'isolation est requis par story API (cf. `AGENTS.md` § Définition of Done).
+Le PRD exige une isolation multi-tenant stricte : un élève A ne doit JAMAIS voir les documents d'un élève B, ni dans ChromaDB, ni dans PostgreSQL, ni dans SeaweedFS (S3), ni via le JWT. C'est une exigence de sécurité et un test d'isolation est requis par story API (cf. `AGENTS.md` § Définition of Done).
 
 Pour ChromaDB, plusieurs options d'isolation existent :
 

@@ -4,12 +4,12 @@ The service is the *only* place that knows about the order of operations:
 
   1. validate the pseudo (multi-tenant contract, exit code 5)
   2. validate the file (size + extension, exit code 2)
-  3. push the source file to MinIO (rollback target on later failure)
+  3. push the source file to S3 / SeaweedFS (rollback target on later failure)
   4. run the right ingestion path (PDF text / scanned PDF+OCR / image+OCR)
   5. embed the chunks
   6. add the chunks to the per-pseudo ChromaDB collection
   7. write a row in the ``documents`` table
-  8. delete the MinIO object on any failure past step 3 (AC4 — "persists nothing")
+  8. delete the S3 object on any failure past step 3 (AC4 — "persists nothing")
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ class UploadResult:
     duration_ms: int
     status: DocumentStatus
     collection: str
-    minio_key: str
+    s3_key: str
     ocr_confidence: float | None = None
 
 
@@ -87,7 +87,7 @@ class UploadService:
     def __init__(
         self,
         *,
-        minio_client: MinioClient,
+        s3_client: MinioClient,
         chroma_store: ChromaStore,
         embeddings: _EmbeddingsLike,
         ingestor: DocumentIngestor,
@@ -95,7 +95,7 @@ class UploadService:
         session_factory: Callable[[], _SessionLike] | None = None,
         max_upload_size_mb: int = 20,
     ) -> None:
-        self._minio = minio_client
+        self._s3 = s3_client
         self._chroma = chroma_store
         self._embeddings = embeddings
         self._ingestor = ingestor
@@ -127,18 +127,18 @@ class UploadService:
 
         document_id = uuid.uuid4()
 
-        # Step 1: push to MinIO first; everything past this point must roll back.
+        # Step 1: push to S3 first; everything past this point must roll back.
         try:
-            minio_key = self._minio.put_object(
+            s3_key = self._s3.put_object(
                 pseudo=pseudo,
                 document_id=document_id,
                 filename=path.name,
                 data=path.read_bytes(),
             )
         except Exception as exc:
-            raise UploadError(UploadErrorKind.STORAGE_FAILURE, f"MinIO put_object: {exc}") from exc
+            raise UploadError(UploadErrorKind.STORAGE_FAILURE, f"S3 put_object: {exc}") from exc
 
-        # From here on, any failure must clean up the MinIO object (AC4).
+        # From here on, any failure must clean up the S3 object (AC4).
         try:
             chunks, ocr_confidence = self._extract_text(path, document_id)
 
@@ -150,7 +150,7 @@ class UploadService:
                     pseudo=pseudo,
                     subject=subject,
                     filename=path.name,
-                    minio_key=minio_key,
+                    s3_key=s3_key,
                     chunks_count=0,
                     status=DocumentStatus.MANUAL_REVIEW_NEEDED,
                     error_reason="ocr_low_confidence",
@@ -161,7 +161,7 @@ class UploadService:
                     duration_ms=_ms_since(started),
                     status=DocumentStatus.MANUAL_REVIEW_NEEDED,
                     collection="",
-                    minio_key=minio_key,
+                    s3_key=s3_key,
                     ocr_confidence=ocr_confidence,
                 )
 
@@ -180,7 +180,7 @@ class UploadService:
                 pseudo=pseudo,
                 subject=subject,
                 filename=path.name,
-                minio_key=minio_key,
+                s3_key=s3_key,
                 chunks_count=len(chunks),
                 status=DocumentStatus.INDEXED,
                 error_reason=None,
@@ -191,16 +191,16 @@ class UploadService:
                 duration_ms=_ms_since(started),
                 status=DocumentStatus.INDEXED,
                 collection=collection.name,
-                minio_key=minio_key,
+                s3_key=s3_key,
                 ocr_confidence=ocr_confidence,
             )
         except UploadError:
-            self._minio.remove_object(minio_key)
+            self._s3.remove_object(s3_key)
             raise
         except Exception as exc:
-            # Unknown failure: roll back MinIO and surface as a storage failure
+            # Unknown failure: roll back S3 and surface as a storage failure
             # so the CLI can show a generic error and the user can retry.
-            self._minio.remove_object(minio_key)
+            self._s3.remove_object(s3_key)
             raise UploadError(UploadErrorKind.STORAGE_FAILURE, f"Pipeline failure: {exc}") from exc
 
     # ------------------------------------------------------------------
@@ -251,7 +251,7 @@ class UploadService:
         pseudo: str,
         subject: str,
         filename: str,
-        minio_key: str,
+        s3_key: str,
         chunks_count: int,
         status: DocumentStatus,
         error_reason: str | None,
@@ -269,7 +269,7 @@ class UploadService:
                     student_pseudo=pseudo,
                     subject=Subject(subject),
                     filename=filename,
-                    minio_key=minio_key,
+                    s3_key=s3_key,
                     chunks_count=chunks_count,
                     status=status,
                     error_reason=error_reason,

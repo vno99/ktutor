@@ -1,8 +1,10 @@
 # ADR 007 — Stocker les fichiers source dans MinIO dès s01
 
-- Status: accepted
+- Status: superseded by 009
 - Date: 2026-08-28
 - Scope: story s01
+
+> ⚠️ Superseded by [ADR 009](./009-seaweedfs-replaces-minio.md) — le service MinIO est remplacé par SeaweedFS (S3-compatible). Le préfixe multi-tenant et l'API publique du client sont inchangés.
 
 ## Context
 

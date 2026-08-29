@@ -24,7 +24,7 @@ from app.services.rag.upload_service import (
     UploadService,
 )
 from app.services.storage.minio_client import MinioClient
-from tests.services.storage.test_minio_client import FakeMinio
+from tests.services.storage.test_s3_client import FakeS3
 
 # ---------------------------------------------------------------------------
 # Shared doubles
@@ -67,13 +67,13 @@ def _build_service(
     ocr_transport: object = None,
     persist_directory: Path | None = None,
     max_upload_size_mb: int = 20,
-) -> tuple[UploadService, FakeMinio, ChromaStore, FakeEmbeddings, list[FakeSession]]:
+) -> tuple[UploadService, FakeS3, ChromaStore, FakeEmbeddings, list[FakeSession]]:
     """Build a wired service plus its dependencies (for assertions)."""
-    fake_minio = FakeMinio()
-    minio_client = MinioClient(
-        endpoint="localhost:9000", access_key="k", secret_key="s", bucket="bkt"
+    fake_s3 = FakeS3()
+    s3_client = MinioClient(
+        endpoint="localhost:8333", access_key="k", secret_key="s", bucket="bkt"
     )
-    minio_client._client = fake_minio  # type: ignore[attr-defined]
+    s3_client._client = fake_s3  # type: ignore[attr-defined]
 
     chroma = ChromaStore(client=chromadb.EphemeralClient())
     embeddings = embeddings or FakeEmbeddings()
@@ -110,7 +110,7 @@ def _build_service(
         return s
 
     service = UploadService(
-        minio_client=minio_client,
+        s3_client=s3_client,
         chroma_store=chroma,
         embeddings=embeddings,
         ingestor=DocumentIngestor(),
@@ -118,7 +118,7 @@ def _build_service(
         session_factory=session_factory,
         max_upload_size_mb=max_upload_size_mb,
     )
-    return service, fake_minio, chroma, embeddings, sessions
+    return service, fake_s3, chroma, embeddings, sessions
 
 
 # ---------------------------------------------------------------------------
@@ -160,14 +160,14 @@ class TestValidation:
 class TestHappyPath:
     def test_text_pdf_indexed_and_persisted(self, sample_pdf_path: Path) -> None:
         pseudo = f"u_{uuid.uuid4().hex[:10]}"
-        service, fake_minio, chroma, embeddings, sessions = _build_service()
+        service, fake_s3, chroma, embeddings, sessions = _build_service()
         result = service.upload(str(sample_pdf_path), pseudo, "maths")
 
         assert result.status is DocumentStatus.INDEXED
         assert result.chunks_count > 0
         assert result.collection == f"rag_maths_{pseudo}"
-        # MinIO got the file.
-        keys = [k for (_bucket, k) in fake_minio.objects]
+        # S3 got the file.
+        keys = [k for (_bucket, k) in fake_s3.objects]
         assert any(k.startswith(f"students/{pseudo}/") for k in keys)
         # Chroma collection has the chunks.
         coll = chroma.get_collection("maths", pseudo)
@@ -212,7 +212,7 @@ class TestManualReviewNeeded:
             )
 
         pseudo = f"u_{uuid.uuid4().hex[:10]}"
-        service, _fake_minio, _, _, sessions = _build_service(ocr_transport=httpx.MockTransport(handler))
+        service, _fake_s3, _, _, sessions = _build_service(ocr_transport=httpx.MockTransport(handler))
         result = service.upload(str(typed_image_path), pseudo, "maths")
 
         assert result.status is DocumentStatus.MANUAL_REVIEW_NEEDED
@@ -233,19 +233,19 @@ class TestManualReviewNeeded:
 
         transport = httpx.MockTransport(lambda req: httpx.Response(500, content="boom"))
         pseudo = f"u_{uuid.uuid4().hex[:10]}"
-        service, fake_minio, _, _, _ = _build_service(ocr_transport=transport)
+        service, fake_s3, _, _, _ = _build_service(ocr_transport=transport)
         with pytest.raises(UploadError) as exc_info:
             service.upload(str(typed_image_path), pseudo, "maths")
         assert exc_info.value.kind is UploadErrorKind.OCR_FAILURE
-        # AC4: the MinIO object must have been rolled back.
-        keys = [k for (_bucket, k) in fake_minio.objects]
+        # AC4: the S3 object must have been rolled back.
+        keys = [k for (_bucket, k) in fake_s3.objects]
         assert not any(k.startswith(f"students/{pseudo}/") for k in keys)
 
 
 class TestRollback:
-    def test_minio_object_removed_on_chromadb_failure(self, sample_pdf_path: Path) -> None:
+    def test_s3_object_removed_on_chromadb_failure(self, sample_pdf_path: Path) -> None:
         pseudo = f"u_{uuid.uuid4().hex[:10]}"
-        service, fake_minio, _, _, _ = _build_service()
+        service, fake_s3, _, _, _ = _build_service()
 
         # Sabotage Chroma so that add_chunks raises.
         from app.services.rag.chroma_store import ChromaStore
@@ -263,24 +263,24 @@ class TestRollback:
             ChromaStore.add_chunks = original_add  # type: ignore[assignment]
 
         assert exc_info.value.kind is UploadErrorKind.STORAGE_FAILURE
-        # The MinIO key for this pseudo must have been removed (rollback).
-        keys = [k for (_bucket, k) in fake_minio.objects]
+        # The S3 key for this pseudo must have been removed (rollback).
+        keys = [k for (_bucket, k) in fake_s3.objects]
         assert not any(k.startswith(f"students/{pseudo}/") for k in keys)
 
 
 class TestSessionFailure:
-    def test_postgres_failure_rolls_back_minio(self, sample_pdf_path: Path) -> None:
+    def test_postgres_failure_rolls_back_s3(self, sample_pdf_path: Path) -> None:
         class FailingSession(FakeSession):
             def commit(self) -> None:
                 raise RuntimeError("postgres down")
 
         pseudo = f"u_{uuid.uuid4().hex[:10]}"
-        service, fake_minio, _, _, _ = _build_service(session=FailingSession())
+        service, fake_s3, _, _, _ = _build_service(session=FailingSession())
         with pytest.raises(UploadError) as exc_info:
             service.upload(str(sample_pdf_path), pseudo, "maths")
         assert exc_info.value.kind is UploadErrorKind.STORAGE_FAILURE
-        # MinIO must have been rolled back.
-        keys = [k for (_bucket, k) in fake_minio.objects]
+        # S3 must have been rolled back.
+        keys = [k for (_bucket, k) in fake_s3.objects]
         assert not any(k.startswith(f"students/{pseudo}/") for k in keys)
 
 

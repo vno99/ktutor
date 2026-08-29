@@ -34,7 +34,7 @@ Les collégiens manquent d'un accompagnement pédagogique **personnalisé** entr
 - **Génération d'exercices** : QCM (tout-ou-rien), problème (appréciation LLM), rédaction (appréciation LLM), flashcards.
 - **Correction progressive** : seuils basés sur le type d'exercice (QCM : toutes bonnes réponses, rédaction : appréciation positive). 3 tentatives max avant correction complète.
 - **Évaluations** : upload d'une copie corrigée par l'enseignant → extraction automatique du score + annotations.
-- **Multi-tenancy** : isolation stricte par élève, puis par matière (PostgreSQL, ChromaDB, MinIO, JWT).
+- **Multi-tenancy** : isolation stricte par élève, puis par matière (PostgreSQL, ChromaDB, SeaweedFS (S3), JWT).
 - **Authentification & RBAC** : JWT RS256, rôles admin/parent/élève, identifiés par pseudo.
 - **Dashboards** : progression élève (scores, exercices tentés, temps), vue parent (lecture seule sur ses enfants).
 - **i18n** : français par défaut, anglais (next-intl).
