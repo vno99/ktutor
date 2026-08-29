@@ -15,6 +15,12 @@
   "MD049": { "style": "underscore" },
   "MD050": { "style": "asterisk" },
   "MD053": false,           // allow duplicate link references in specs that re-link ADR ids
+  "MD029": false,           // ordered-list-prefix: plans (docs/plans/*.md) and
+                           // stories (docs/stories.md) number tasks
+                           // continuously across ### Etape / ### Phase sections
+                           // by design — the number is semantic, not visual.
+                           // Re-numbering would break cross-references like
+                           // "see Tache 14". Disable the rule instead.
   "MD056": false,           // table-column-count is structural (some ADR tables
                            // use 5-6 columns by design)
   "MD060": false            // table-column-style: cosmetic. The default "any"

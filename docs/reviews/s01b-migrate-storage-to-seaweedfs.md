@@ -81,8 +81,8 @@
 - [x] Suite de tests lancée par le reviewer (`cd backend && pytest --cov=app --cov-fail-under=80 -m "not integration"`) → **86 passed, 1 warning, coverage 86.12%**. La warning concerne `langchain-community` sunset (`ingestion.py:20`), dette préexistante à s01, non bloquante.
 - [x] Assertions épinglent les acceptance criteria.
   - **AC1 (service seaweedfs dans docker-compose)** : vérifié par lecture du YAML.
-  - __AC2 (S3__ dans .env.example, MINIO__ supprimées)** : vérifié par grep + lecture.
-  - __AC3 (s3__ dans config.py, pas d'alias)_* : vérifié par lecture.
+  - **AC2 (S3_\* dans .env.example, MINIO\_\* supprimées)** : vérifié par grep + lecture.
+  - **AC3 (s3_\* dans config.py, pas d'alias)** : vérifié par lecture.
   - **AC4 (SDK minio>=7.2 conservé)** : `requirements.txt:24` intact.
   - **AC5 (fixture SeaweedFS référencée)** : `backend/tests/fixtures/seaweedfs/{Dockerfile,s3config.json}` (déjà conforme, non touché). CI `.github/workflows/ci.yml:22-98` build l'image GHCR.
   - **AC6 (tests `services/storage` passent)** : `test_s3_client.py` (7 tests) tous verts.
