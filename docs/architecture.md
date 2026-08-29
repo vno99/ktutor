@@ -66,6 +66,7 @@ ktutor/
 │   │   │   └── observability/       #   logging, tracing, metrics, alerts
 │   │   ├── services/
 │   │   │   ├── rag/                 #   ingestion, ocr, embeddings, chroma_store, retriever
+│   │   │   ├── llm/                 #   client (LlmClient Protocol, ChatOpenAI factory)
 │   │   │   ├── agents/              #   supervisor, maths_agent, francais_agent
 │   │   │   ├── exercises/           #   qcm_generator, free_generator, flashcard_generator, qcm_grader, text_grader
 │   │   │   ├── correction/          #   progressive, hints
@@ -277,7 +278,7 @@ notifications (
 | **Celery** | tâches asynchrones (OCR, indexation, extraction score) | broker = Redis | oui |
 | **OpenTelemetry** | traces vers console (local) ou OTLP (env) | exporter console | oui |
 | **Prometheus** | métriques sur `/metrics` | scrape via `localhost:8000/metrics` | oui |
-| **LLM provider** | chat, génération exercices, OCR vision, LLM-as-judge | env `LLM_PROVIDER` (minimax | openai | mistral | ollama) | oui |
+| **LLM provider** | chat, génération exercices, OCR vision, LLM-as-judge | env `LLM_PROVIDER` (minimax | openai | mistral | ollama). `minimax` est routé via OpenRouter (`LLM_BASE_URL` = `https://openrouter.ai/api/v1`) avec `ChatOpenAI`. | oui |
 | **Embeddings** | vectorisation des chunks | FastEmbed (ONNX, local) ou OpenAI | oui |
 
 **Hors-scope (PRD § Hors-scope)** : Stripe (paiements), PagerDuty/Slack (alerting prod), SendGrid (email), Sentry (error tracking prod), Datadog/New Relic (APM prod).

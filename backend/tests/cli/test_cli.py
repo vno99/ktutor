@@ -8,6 +8,7 @@ is exercised for argument parsing, output formatting and exit codes.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -230,8 +231,177 @@ class TestCliSurface:
         # in CI environments with no TTY, typer may route help to stderr,
         # and rich emits ANSI escape codes that pollute the substring search.
         # Strip ANSI before asserting.
-        import re
-
         text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "--pseudo" in text
         assert "--subject" in text
+
+    def test_help_lists_chat_command(self) -> None:
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "chat" in result.stdout
+
+    def test_chat_help_works(self) -> None:
+        result = runner.invoke(app, ["chat", "--help"])
+        assert result.exit_code == 0
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--pseudo" in text
+        assert "--subject" in text
+        assert "--question" in text
+
+
+# ---------------------------------------------------------------------------
+# Chat command tests (s02)
+# ---------------------------------------------------------------------------
+
+
+class _StubChatService:
+    """Acts as ``MathsAgent`` for the CLI without touching real services."""
+
+    def __init__(self, *, behavior: str = "ok") -> None:
+        self.behavior = behavior
+        self.calls: list[tuple[str, str, str]] = []
+
+    def ask(self, subject: str, pseudo: str, question: str):
+        from app.services.agents.maths_agent import ChatResult, SourceCitation
+
+        self.calls.append((subject, pseudo, question))
+        if self.behavior == "ok":
+            return ChatResult(
+                answer="Une dérivée mesure la pente. [source: cours.pdf, chunk 0]",
+                sources=[SourceCitation(filename="cours.pdf", chunk_index=0)],
+            )
+        if self.behavior == "no_document":
+            return ChatResult(answer="Je n'ai rien trouvé.", sources=[])
+        if self.behavior == "invalid_pseudo":
+            from app.services.rag.chroma_store import InvalidPseudoError
+
+            raise InvalidPseudoError("Pseudo 'bad' invalide.")
+        if self.behavior == "generic":
+            raise RuntimeError("kaboom")
+        raise RuntimeError(f"unknown behavior: {self.behavior}")
+
+
+@pytest.fixture()
+def stubbed_chat_service(monkeypatch: pytest.MonkeyPatch):
+    """Patch ``_build_chat_service`` so the CLI uses our chat stub."""
+    holder: dict[str, _StubChatService] = {}
+
+    def _factory(behavior: str = "ok"):
+        stub = _StubChatService(behavior=behavior)
+        holder["svc"] = stub
+        monkeypatch.setattr("app.cli._build_chat_service", lambda: stub)
+        return stub
+
+    return _factory, holder
+
+
+class TestChat:
+    def test_chat_returns_zero_with_answer(self, stubbed_chat_service) -> None:
+        factory, holder = stubbed_chat_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--question",
+                "Qu'est-ce qu'une dérivée ?",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+        assert holder["svc"].calls == [("maths", "ali", "Qu'est-ce qu'une dérivée ?")]
+
+    def test_chat_returns_zero_with_no_document(self, stubbed_chat_service) -> None:
+        factory, _ = stubbed_chat_service
+        factory("no_document")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--question",
+                "Quoi ?",
+            ],
+        )
+        assert result.exit_code == EXIT_OK
+        # The fallback message must be present in the output.
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "Je n'ai rien trouvé" in text
+
+    def test_chat_json_output_is_valid(self, stubbed_chat_service) -> None:
+        factory, _ = stubbed_chat_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--question",
+                "Q?",
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_OK
+        text = result.stdout
+        start = text.find("{")
+        assert start != -1, text
+        depth = 0
+        end = -1
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        assert end != -1, text
+        payload = json.loads(text[start:end])
+        assert "answer" in payload
+        assert "sources" in payload
+        assert payload["sources"][0]["filename"] == "cours.pdf"
+        assert payload["sources"][0]["chunk_index"] == 0
+
+    def test_chat_invalid_pseudo_returns_5(self, stubbed_chat_service) -> None:
+        factory, _ = stubbed_chat_service
+        factory("invalid_pseudo")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "bad-pseudo",
+                "--subject",
+                "maths",
+                "--question",
+                "Q?",
+            ],
+        )
+        assert result.exit_code == EXIT_INVALID_PSEUDO
+
+    def test_chat_generic_exception_returns_1(self, stubbed_chat_service) -> None:
+        factory, _ = stubbed_chat_service
+        factory("generic")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--question",
+                "Q?",
+            ],
+        )
+        assert result.exit_code == EXIT_GENERIC_ERROR

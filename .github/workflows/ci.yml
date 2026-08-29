@@ -319,8 +319,16 @@ jobs:
             git config user.email "ktutor-bot@users.noreply.github.com"
             git add docs/ README.md .markdownlint.jsonc
             git commit -m "docs: auto-fix markdown lint violations" || true
-            git push origin main
-            echo "Auto-fixes committed and pushed."
+            # The push was removed on 2026-08-29: the runner checks out the
+            # PR head in detached HEAD state, so ``git push origin main`` is
+            # a no-op target ("src refspec main does not match any"). The
+            # commit created above is also orphaned (detached HEAD) and gets
+            # garbage-collected when the job ends. The lint step below
+            # (``Lint markdown (verify)``) still enforces the rules: a
+            # future story may re-introduce the auto-fix push on a proper
+            # branch (``HEAD:${{ github.head_ref }}`` for pull_request,
+            # ``main`` for push events). See s01b/s02 reviews.
+            echo "Auto-fixes committed locally (push disabled, see comment)."
           else
             echo "No auto-fixes to commit."
           fi

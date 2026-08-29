@@ -26,6 +26,11 @@ minio>=7.2
 # Text processing
 langchain-text-splitters>=0.3
 langchain-community>=0.3
+# OpenAI-compatible chat model (used by services/llm/client.py for
+# minimax-via-OpenRouter and openai; by services/rag/embeddings.py for
+# OpenAI embeddings fallback). Pulled transitively by langchain-community
+# in some envs, but listed explicitly to keep CI reproducible.
+langchain-openai>=0.2
 
 # Tests
 pytest>=8.0

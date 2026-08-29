@@ -48,3 +48,31 @@ class TestSettingsFromEnv:
 
         with _pytest.raises(Exception):
             Settings()
+
+
+class TestChatSettings:
+    """Chat LLM settings — s02."""
+
+    def test_default_chat_top_k_is_4(self) -> None:
+        assert Settings().chat_top_k == 4
+
+    def test_default_chat_temperature_is_zero(self) -> None:
+        assert Settings().chat_temperature == 0.0
+
+    def test_default_llm_base_url_is_openrouter(self) -> None:
+        assert Settings().llm_base_url == "https://openrouter.ai/api/v1"
+
+    def test_default_no_document_message_set(self) -> None:
+        assert "tes documents" in Settings().chat_no_document_message
+
+    def test_chat_top_k_override_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CHAT_TOP_K", "8")
+        assert Settings().chat_top_k == 8
+
+    def test_llm_model_override_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_MODEL", "openai/gpt-4o-mini")
+        assert Settings().llm_model == "openai/gpt-4o-mini"
+
+    def test_llm_api_key_override_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_API_KEY", "sk-test-xyz")
+        assert Settings().llm_api_key == "sk-test-xyz"
