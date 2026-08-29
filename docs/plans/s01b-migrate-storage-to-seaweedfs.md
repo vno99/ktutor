@@ -29,6 +29,7 @@ Research: `docs/research/s01b-migrate-storage-to-seaweedfs.md` — read it first
 ## Tasks (ordered)
 
 > **Décisions tranchées au planning** (issues de la research § Open questions) :
+>
 > - **Q1 (Alembic)** : on initialise Alembic dans cette story si non déjà fait. Cohérent avec `docs/architecture.md` (mentionne `alembic/` dans la structure cible). Sinon, on documente un `ALTER TABLE` manuel dans le PR description.
 > - **Q2 (volume `minio_data`)** : renommé en `seaweedfs_data`. Pas de données à migrer.
 > - **Q3 (`garage.toml`)** : hors-scope, ticket de cleanup séparé.
@@ -141,6 +142,7 @@ Research: `docs/research/s01b-migrate-storage-to-seaweedfs.md` — read it first
 ## Files touched
 
 **Code** (11 fichiers) :
+
 - `docker-compose.yml` (modifié)
 - `backend/.env.example` (modifié)
 - `backend/app/core/config.py` (modifié)
@@ -156,6 +158,7 @@ Research: `docs/research/s01b-migrate-storage-to-seaweedfs.md` — read it first
 - `backend/alembic.ini` + `backend/alembic/env.py` (nouveau, si Alembic pas encore initialisé)
 
 **Doc** (5 fichiers) :
+
 - `CLAUDE.md` (modifié)
 - `docs/prd.md` (modifié)
 - `docs/architecture.md` (modifié)
@@ -163,6 +166,7 @@ Research: `docs/research/s01b-migrate-storage-to-seaweedfs.md` — read it first
 - `docs/decisions/004-rag-isolation-by-collection.md` (modifié)
 
 **Non touchés** (run interdicts) :
+
 - `backend/app/services/storage/minio_client.py` (commentaires internes seulement si pertinent)
 - `backend/requirements.txt`
 - `backend/tests/fixtures/seaweedfs/` (déjà conforme)
@@ -183,11 +187,13 @@ Research: `docs/research/s01b-migrate-storage-to-seaweedfs.md` — read it first
 ### Vérification de la migration Alembic (manuelle, locale)
 
 - Sur une base jetable (SQLite in-memory ou Postgres local) :
+
   ```
   alembic upgrade head    # doit créer la table avec s3_key
   alembic downgrade -1    # doit revenir à minio_key
   alembic upgrade head    # doit re-appliquer s3_key
   ```
+
 - Vérifier qu'aucune donnée n'est perdue (la colonne est juste renommée).
 
 ### Vérification du runtime (manuelle, locale)

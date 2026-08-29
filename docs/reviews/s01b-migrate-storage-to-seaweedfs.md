@@ -81,8 +81,8 @@
 - [x] Suite de tests lancée par le reviewer (`cd backend && pytest --cov=app --cov-fail-under=80 -m "not integration"`) → **86 passed, 1 warning, coverage 86.12%**. La warning concerne `langchain-community` sunset (`ingestion.py:20`), dette préexistante à s01, non bloquante.
 - [x] Assertions épinglent les acceptance criteria.
   - **AC1 (service seaweedfs dans docker-compose)** : vérifié par lecture du YAML.
-  - **AC2 (S3_* dans .env.example, MINIO_* supprimées)** : vérifié par grep + lecture.
-  - **AC3 (s3_* dans config.py, pas d'alias)** : vérifié par lecture.
+  - __AC2 (S3__ dans .env.example, MINIO__ supprimées)** : vérifié par grep + lecture.
+  - __AC3 (s3__ dans config.py, pas d'alias)_* : vérifié par lecture.
   - **AC4 (SDK minio>=7.2 conservé)** : `requirements.txt:24` intact.
   - **AC5 (fixture SeaweedFS référencée)** : `backend/tests/fixtures/seaweedfs/{Dockerfile,s3config.json}` (déjà conforme, non touché). CI `.github/workflows/ci.yml:22-98` build l'image GHCR.
   - **AC6 (tests `services/storage` passent)** : `test_s3_client.py` (7 tests) tous verts.
@@ -107,7 +107,7 @@
 
 ### minor — `backend/app/services/storage/minio_client.py:50` — docstring obsolète
 
-Le docstring de `put_object` dit encore : `The returned key has the form \`\`students/<pseudo>/<document_id>\`\` and is the value persisted in the \`\`documents.minio_key\`\` column.` La colonne est désormais `documents.s3_key` (AC8). L'implémenteur a gardé le fichier intact par respect du run interdit (« **Ne PAS renommer** le fichier `backend/app/services/storage/minio_client.py` ni la classe `MinioClient`. … Le SDK Python `minio` reste utilisé. ») — la modification aurait été légitime uniquement dans un commentaire. **Code smell, pas un bug.** À fixer dans une story de cleanup post-migration.
+Le docstring de `put_object` dit encore : `The returned key has the form \`\`students/<pseudo>/<document_id>\`\` and is the value persisted in the \`\`documents.minio_key\`\` column.` La colonne est désormais `documents.s3_key` (AC8). L'implémenteur a gardé le fichier intact par respect du run interdit (« **Ne PAS renommer** le fichier `backend/app/services/storage/minio_client.py` ni la classe `MinioClient`. … Le SDK Python`minio` reste utilisé. ») — la modification aurait été légitime uniquement dans un commentaire. **Code smell, pas un bug.** À fixer dans une story de cleanup post-migration.
 
 ### minor — `backend/app/services/storage/minio_client.py:62, 73` — paramètres `minio_key` non renommés
 
@@ -119,7 +119,7 @@ Le plan AC9 / Tâche 9 spécifiait `grep -c "minio" backend/app/cli.py` → 0 (s
 
 ### minor — `backend/app/services/storage/minio_client.py:1, 17, 88` — commentaires internes « MinIO » non mis à jour
 
-Le module docstring (l.1) dit encore `"""MinIO / S3 client for storing uploaded source files."""`. Le docstring de classe (l.17) dit `"""Thin wrapper around \`\`minio.Minio\`\` enforcing our key convention."""`. Le commentaire de `_guess_content_type` (l.88) dit `"""Best-effort MIME guess from the file extension (MinIO needs one)."""`. Le plan § Run interdits autorisait explicitement les « commentaires internes seulement si pertinent » — l'implémenteur n'a pas mis à jour ces commentaires. **Cosmétique.** Aucun impact sur le comportement, mais crée une incohérence de surface : le runtime et la doc sont SeaweedFS, les commentaires sont MinIO.
+Le module docstring (l.1) dit encore `"""MinIO / S3 client for storing uploaded source files."""`. Le docstring de classe (l.17) dit `"""Thin wrapper around \`\`minio.Minio\`\` enforcing our key convention."""`. Le commentaire de`_guess_content_type` (l.88) dit `"""Best-effort MIME guess from the file extension (MinIO needs one)."""`. Le plan § Run interdits autorisait explicitement les « commentaires internes seulement si pertinent » — l'implémenteur n'a pas mis à jour ces commentaires. **Cosmétique.** Aucun impact sur le comportement, mais crée une incohérence de surface : le runtime et la doc sont SeaweedFS, les commentaires sont MinIO.
 
 ### minor — `backend/.env.example:29` — commentaire SDK `minio`
 
@@ -127,7 +127,7 @@ La ligne `# S3-compatible object store. The Python SDK is the \`minio\` package`
 
 ### minor — `.github/workflows/ci.yml:64` — commentaire obsolète `minio`
 
-Le commentaire `# Service containers: without a job-level \`container:\`, services are accessed via the published ports on localhost. The service labels (postgres, minio, chroma) are NOT resolvable as DNS in this mode` mentionne encore `minio` au lieu de `seaweedfs`. La section env `S3_*` est correcte. **Drift cosmétique de commentaire.** Le job `backend` continue de fonctionner (les services sont en fait `postgres`, `seaweedfs`, `chroma`), mais le commentaire est trompeur pour un futur lecteur.
+Le commentaire `# Service containers: without a job-level \`container:\`, services are accessed via the published ports on localhost. The service labels (postgres, minio, chroma) are NOT resolvable as DNS in this mode` mentionne encore `minio` au lieu de `seaweedfs`. La section env`S3_*` est correcte. **Drift cosmétique de commentaire.** Le job `backend` continue de fonctionner (les services sont en fait `postgres`,`seaweedfs`,`chroma`), mais le commentaire est trompeur pour un futur lecteur.
 
 ### minor — Plan violation : tests nouveaux (Déviation acceptée)
 
@@ -136,6 +136,7 @@ Le plan § Test strategy dit « **Pas de test nouveau (scope respecté). Cette s
 ### minor — Plan deviation : `CLAUDE.md` modifié au-delà des 2 lignes spécifiées (Déviation acceptée)
 
 Le plan § Tâche 14 spécifiait les lignes 36 et 521 uniquement. L'implémenteur a aussi mis à jour :
+
 - l.595-598 : `MINIO_ENDPOINT=minio:9000` etc. → `S3_ENDPOINT=localhost:8333` etc. (l'exemple `.env` reproduit dans CLAUDE.md)
 - l.634 : `docker-compose up -d postgres redis minio chroma` → `… seaweedfs chroma`
 

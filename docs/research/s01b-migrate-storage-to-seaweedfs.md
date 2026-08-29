@@ -59,12 +59,14 @@
 - **Job `backend`** (l. 58-203) :
   - service `seaweedfs` sur port 8333 (l. 91-98)
   - env vars pointent vers SeaweedFS mais s'appellent encore `MINIO_*` (l. 70-73) :
+
     ```yaml
     MINIO_ENDPOINT: localhost:8333
     MINIO_ACCESS_KEY: ktutorci
     MINIO_SECRET_KEY: ktutorci_secret
     MINIO_BUCKET: ktutor-test
     ```
+
   - check readiness inclut `localhost:8333` (l. 185)
 
 → **Constat important** : le service est déjà SeaweedFS, l'env aussi fonctionnellement, mais les noms mentent. La story doit aligner le naming (AC2, AC3).
@@ -219,6 +221,7 @@ Vérifié par lecture du code (pas mémoire) :
 **Après lecture du code** : **2** — confirmé.
 
 **Justification** :
+
 - L'API publique du client est **inchangée** (signatures, comportements, exceptions). Le SDK `minio` Python continue de fonctionner contre SeaweedFS.
 - Le test d'isolation cross-tenant repose sur le préfixe de clé, pas sur l'implémentation du client.
 - Le travail est **mécanique** : renommer `minio_key` → `s3_key` (modèle + dataclass + callers), renommer `minio_*` → `s3_*` (config + env), remplacer le service dans docker-compose.yml, mettre à jour la doc.
@@ -233,6 +236,7 @@ Vérifié par lecture du code (pas mémoire) :
 **Non requis** (verdict 2, pas 5).
 
 Si un split devenait utile (par exemple si on découvrait que la migration Alembic est plus lourde que prévu), la coupe naturelle serait :
+
 - **s01b-1-data-migration** : renommage colonne + Alembic + tests modèles
 - **s01b-2-runtime** : docker-compose + config + env + CI env vars
 - **s01b-3-doc** : CLAUDE.md + prd.md + architecture.md + ADR 002/004
