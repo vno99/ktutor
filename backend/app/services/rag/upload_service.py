@@ -171,7 +171,7 @@ class UploadService:
             collection = self._chroma.get_collection(subject, pseudo)
             self._chroma.add_chunks(
                 collection,
-                [_to_chroma_dict(c, document_id) for c in chunks],
+                [_to_chroma_dict(c, document_id, path.name) for c in chunks],
                 embeddings,
             )
             # Step 4: persist row.
@@ -285,9 +285,9 @@ def _ms_since(start: float) -> int:
     return int((time.monotonic() - start) * 1000)
 
 
-def _to_chroma_dict(chunk: Chunk, document_id: uuid.UUID) -> dict:
+def _to_chroma_dict(chunk: Chunk, document_id: uuid.UUID, filename: str) -> dict:
     return {
         "id": chunk.id,
         "content": chunk.content,
-        "metadata": {**chunk.metadata, "document_id": str(document_id)},
+        "metadata": {**chunk.metadata, "document_id": str(document_id), "filename": filename},
     }

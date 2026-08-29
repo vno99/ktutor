@@ -1,6 +1,13 @@
-"""``ktutor`` CLI — the user-facing entry point for s01 (upload).
+"""``ktutor`` CLI — user-facing entry point.
 
-Run via ``python -m ktutor.cli upload <file> --pseudo <p> --subject maths``.
+Run via ``python -m ktutor.cli <command> ...``.
+
+Commands
+--------
+
+* ``upload`` — index a document into a student's per-pseudo RAG.
+* ``chat``  — ask a question against the indexed documents (s02).
+
 Exit codes (see ``docs/designs/s01-uploader-document.md`` § Conventions):
 
   0 — success (or ``manual_review_needed``: the command executed correctly)
@@ -22,10 +29,13 @@ from rich.table import Table
 
 from app.core.config import get_settings
 from app.core.database import session as db_session
-from app.services.rag.chroma_store import ChromaStore
+from app.services.agents.maths_agent import MathsAgent
+from app.services.llm.client import build_llm_client
+from app.services.rag.chroma_store import ChromaStore, InvalidPseudoError
 from app.services.rag.embeddings import build_embedding_provider
 from app.services.rag.ingestion import DocumentIngestor
 from app.services.rag.ocr import MultimodalOcr
+from app.services.rag.retriever import Retriever
 from app.services.rag.upload_service import (
     EXIT_GENERIC_ERROR,
     EXIT_INVALID_FILE,
@@ -77,6 +87,28 @@ def _build_service() -> UploadService:
         ocr=ocr,
         session_factory=db_session.get_session_factory(),
         max_upload_size_mb=settings.max_upload_size_mb,
+    )
+
+
+def _build_chat_service() -> MathsAgent:
+    """Wire the maths agent with its dependencies (ChromaDB, embeddings, LLM).
+
+    No S3, no PostgreSQL, no OCR — chat is read-only and reads only the
+    ChromaDB collections populated by the upload command.
+    """
+    settings = get_settings()
+    chroma = ChromaStore(persist_directory=settings.chroma_persist_directory)
+    embeddings = build_embedding_provider(
+        llm_provider=settings.llm_provider,
+        openai_api_key=settings.openai_api_key,
+    )
+    llm = build_llm_client(settings)
+    retriever = Retriever(chroma_store=chroma, embeddings=embeddings)
+    return MathsAgent(
+        llm=llm,
+        retriever=retriever,
+        top_k=settings.chat_top_k,
+        no_document_message=settings.chat_no_document_message,
     )
 
 
@@ -186,6 +218,60 @@ def upload(
         raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
 
     _print_summary(result, quiet=quiet, json_output=json_output)
+    raise typer.Exit(code=EXIT_OK)
+
+
+# ---------------------------------------------------------------------------
+# Chat command (s02)
+# ---------------------------------------------------------------------------
+
+
+def _print_chat_result(result, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(
+            data={
+                "answer": result.answer,
+                "sources": [
+                    {"filename": s.filename, "chunk_index": s.chunk_index}
+                    for s in result.sources
+                ],
+            }
+        )
+        return
+    body_lines = [result.answer, ""]
+    if result.sources:
+        body_lines.append("Sources :")
+        for s in result.sources:
+            body_lines.append(f"  - {s.filename} (chunk {s.chunk_index})")
+    console.print(Panel("\n".join(body_lines), title="[bold blue]Réponse[/bold blue]", border_style="blue"))
+
+
+@app.command()
+def chat(
+    pseudo: str = typer.Option(..., "--pseudo", help="Pseudo de l'élève (regex ^[a-zA-Z0-9_]{3,32}$)"),
+    subject: str = typer.Option(..., "--subject", help="Matière (maths|francais)"),
+    question: str = typer.Option(..., "--question", help="Question posée à l'agent"),
+    json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
+) -> None:
+    """Pose une question à l'agent sur les documents indexés de l'élève."""
+    try:
+        try:
+            agent = _build_chat_service()
+        except Exception as exc:
+            console.print(f"[bold red]✗ Initialisation impossible[/bold red] — {exc}")
+            raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+        result = agent.ask(subject, pseudo, question)
+    except InvalidPseudoError as exc:
+        console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:
+        console.print(f"[bold red]✗ Échec[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+    _print_chat_result(result, json_output=json_output)
     raise typer.Exit(code=EXIT_OK)
 
 

@@ -287,3 +287,19 @@ class TestSessionFailure:
 class TestAllowedExtensions:
     def test_extensions_include_pdf_png_jpg_txt(self) -> None:
         assert {".pdf", ".png", ".jpg", ".jpeg", ".txt"} == ALLOWED_EXTENSIONS
+
+
+class TestMetadata:
+    """Chroma metadata must include the filename so the chat agent can cite sources (s02)."""
+
+    def test_filename_included_in_chroma_metadata(self, sample_pdf_path: Path) -> None:
+        pseudo = f"u_{uuid.uuid4().hex[:10]}"
+        service, _, chroma, _, _ = _build_service()
+        service.upload(str(sample_pdf_path), pseudo, "maths")
+
+        coll = chroma.get_collection("maths", pseudo)
+        results = coll.get(include=["metadatas"])
+        assert results["metadatas"], "expected at least one indexed chunk"
+        for meta in results["metadatas"]:
+            assert meta.get("filename") == sample_pdf_path.name
+            assert meta.get("document_id")

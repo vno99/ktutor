@@ -49,6 +49,20 @@ class Settings(BaseSettings):
     llm_provider: Literal["minimax", "openai", "mistral", "ollama"] = "minimax"
     openai_api_key: str = ""
 
+    # Chat LLM (s02) — the maths agent pipeline. The ``minimax`` provider is
+    # routed via OpenRouter (an OpenAI-compatible endpoint). ``openai`` is
+    # served directly. ``ollama`` is intentionally not wired (raises
+    # ``NotImplementedError`` at factory time) — wiring ollama requires
+    # adding ``langchain-ollama`` to ``requirements.txt`` (out of s02 scope).
+    llm_api_key: str = ""
+    llm_base_url: str = "https://openrouter.ai/api/v1"
+    llm_model: str = "minimax/minimax-m3:free"
+    chat_temperature: float = 0.0
+    chat_top_k: int = 4
+    chat_no_document_message: str = (
+        "Je n'ai pas trouvé d'information sur ce sujet dans tes documents."
+    )
+
 
 _settings: Settings | None = None
 
