@@ -9,7 +9,14 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.database.models import Base, Document, DocumentStatus, Subject
+from app.core.database.models import (
+    Base,
+    Document,
+    DocumentStatus,
+    Exercise,
+    ExerciseType,
+    Subject,
+)
 
 
 @pytest.fixture()
@@ -109,3 +116,56 @@ class TestDocumentModel:
         session.refresh(doc)
         assert doc.status is DocumentStatus.ERROR
         assert doc.error_reason == "ocr_low_confidence"
+
+
+class TestExerciseModel:
+    def test_create_qcm_exercise_with_questions(self, session) -> None:
+        document_id = uuid.uuid4()
+        questions = [
+            {
+                "question": "What is 2+2?",
+                "options": ["1", "2", "3", "4"],
+                "correct_index": 3,
+            }
+        ]
+        ex = Exercise(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            type=ExerciseType.QCM,
+            document_id=document_id,
+            questions=questions,
+        )
+        session.add(ex)
+        session.commit()
+        session.refresh(ex)
+
+        assert isinstance(ex.id, uuid.UUID)
+        assert ex.student_pseudo == "ali"
+        assert ex.type is ExerciseType.QCM
+        assert ex.document_id == document_id
+        assert ex.questions == questions
+        assert ex.statement is None
+        assert ex.expected_answer is None
+        assert ex.grading_criteria is None
+        assert isinstance(ex.created_at, datetime)
+
+    def test_filter_by_pseudo_returns_only_matching_rows(self, session) -> None:
+        document_id = uuid.uuid4()
+        for pseudo in ("ali", "bob"):
+            session.add(
+                Exercise(
+                    student_pseudo=pseudo,
+                    subject=Subject.MATHS,
+                    type=ExerciseType.QCM,
+                    document_id=document_id,
+                    questions=[{"question": "Q", "options": ["a", "b", "c", "d"], "correct_index": 0}],
+                )
+            )
+        session.commit()
+
+        ali = session.query(Exercise).filter(Exercise.student_pseudo == "ali").all()
+        bob = session.query(Exercise).filter(Exercise.student_pseudo == "bob").all()
+        assert len(ali) == 1
+        assert len(bob) == 1
+        assert ali[0].student_pseudo == "ali"
+        assert bob[0].student_pseudo == "bob"

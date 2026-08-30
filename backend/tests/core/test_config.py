@@ -50,6 +50,30 @@ class TestSettingsFromEnv:
             Settings()
 
 
+class TestQcmSettings:
+    """QCM generation settings — s03."""
+
+    def test_default_qcm_default_questions_is_5(self) -> None:
+        assert Settings().qcm_default_questions == 5
+
+    def test_default_qcm_max_questions_is_20(self) -> None:
+        assert Settings().qcm_max_questions == 20
+
+    def test_default_qcm_max_retries_is_1(self) -> None:
+        assert Settings().qcm_max_retries == 1
+
+    def test_default_qcm_temperature_is_zero(self) -> None:
+        assert Settings().qcm_temperature == 0.0
+
+    def test_qcm_default_questions_override_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("QCM_DEFAULT_QUESTIONS", "8")
+        assert Settings().qcm_default_questions == 8
+
+    def test_qcm_max_questions_override_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("QCM_MAX_QUESTIONS", "30")
+        assert Settings().qcm_max_questions == 30
+
+
 class TestChatSettings:
     """Chat LLM settings — s02."""
 

@@ -7,6 +7,7 @@ Commands
 
 * ``upload`` — index a document into a student's per-pseudo RAG.
 * ``chat``  — ask a question against the indexed documents (s02).
+* ``generate-qcm`` — generate a QCM from a specific document (s03).
 
 Exit codes (see ``docs/designs/s01-uploader-document.md`` § Conventions):
 
@@ -14,8 +15,8 @@ Exit codes (see ``docs/designs/s01-uploader-document.md`` § Conventions):
   1 — generic error
   2 — invalid file (missing, too large, unsupported extension)
   3 — OCR failure (LLM vision unavailable or unparseable)
-  4 — ChromaDB or PostgreSQL write failure
-  5 — invalid pseudo
+  4 — ChromaDB or PostgreSQL write failure (or LLM malformed output)
+  5 — invalid pseudo (or document not found / cross-tenant)
 """
 
 from __future__ import annotations
@@ -30,6 +31,10 @@ from rich.table import Table
 from app.core.config import get_settings
 from app.core.database import session as db_session
 from app.services.agents.maths_agent import MathsAgent
+from app.services.exercises.qcm_generator import (
+    QcmGenerationError,
+    QcmGenerator,
+)
 from app.services.llm.client import build_llm_client
 from app.services.rag.chroma_store import ChromaStore, InvalidPseudoError
 from app.services.rag.embeddings import build_embedding_provider
@@ -109,6 +114,34 @@ def _build_chat_service() -> MathsAgent:
         retriever=retriever,
         top_k=settings.chat_top_k,
         no_document_message=settings.chat_no_document_message,
+    )
+
+
+def _build_qcm_service() -> QcmGenerator:
+    """Wire the QCM generator (s03).
+
+    No S3, no OCR. ChromaDB and the LLM are required; the session factory
+    is wired so generated QCMs are persisted. ``init_db()`` is called so
+    the ``exercises`` table exists in dev/CI (s15 will consolidate the
+    Alembic migration).
+    """
+    settings = get_settings()
+    chroma = ChromaStore(persist_directory=settings.chroma_persist_directory)
+    embeddings = build_embedding_provider(
+        llm_provider=settings.llm_provider,
+        openai_api_key=settings.openai_api_key,
+    )
+    llm = build_llm_client(settings)
+    retriever = Retriever(chroma_store=chroma, embeddings=embeddings)
+    db_session.init_db()
+    return QcmGenerator(
+        llm=llm,
+        retriever=retriever,
+        session_factory=db_session.get_session_factory(),
+        default_questions=settings.qcm_default_questions,
+        max_questions=settings.qcm_max_questions,
+        max_retries=settings.qcm_max_retries,
+        temperature=settings.qcm_temperature,
     )
 
 
@@ -272,6 +305,88 @@ def chat(
         raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
 
     _print_chat_result(result, json_output=json_output)
+    raise typer.Exit(code=EXIT_OK)
+
+
+# ---------------------------------------------------------------------------
+# generate-qcm command (s03)
+# ---------------------------------------------------------------------------
+
+
+# s03 adds two more exit codes on top of the upload/chat convention:
+#   5 — document not found / no chunks (treated like "invalid pseudo": the
+#       user gave a wrong document_id, including the cross-tenant case)
+#   4 — malformed LLM output (treated like a storage failure: the LLM
+#       pipeline could not deliver a parseable result)
+EXIT_QCM_DOCUMENT_NOT_FOUND = 5
+EXIT_QCM_LLM_FAILURE = EXIT_STORAGE_FAILURE  # 4
+
+
+def _print_qcm_result(result, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(
+            data={
+                "exercise_id": str(result.exercise_id),
+                "questions": [q.model_dump() for q in result.questions],
+            }
+        )
+        return
+    body_lines = [f"Exercise ID : {result.exercise_id}", "", "Questions :"]
+    for i, q in enumerate(result.questions, 1):
+        body_lines.append(f"  {i}. {q.question}")
+        for j, opt in enumerate(q.options):
+            marker = " ✓" if j == q.correct_index else "  "
+            body_lines.append(f"     {marker} {chr(ord('A') + j)}. {opt}")
+    console.print(
+        Panel("\n".join(body_lines), title="[bold blue]QCM généré[/bold blue]", border_style="blue")
+    )
+
+
+def _print_qcm_error(kind: str, message: str, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(data={"status": "error", "kind": kind, "message": message})
+    else:
+        console.print(f"[bold red]✗ Échec de la génération du QCM[/bold red] — {message}")
+
+
+@app.command()
+def generate_qcm(
+    pseudo: str = typer.Option(..., "--pseudo", help="Pseudo de l'élève (regex ^[a-zA-Z0-9_]{3,32}$)"),
+    document_id: str = typer.Option(..., "--document-id", help="Identifiant UUID du document source"),
+    n: int = typer.Option(None, "--n", help="Nombre de questions (défaut: qcm_default_questions)"),
+    subject: str = typer.Option("maths", "--subject", help="Matière (maths|francais)"),
+    quiet: bool = typer.Option(False, "--quiet", help="N'affiche que la ligne finale ✓/✗"),
+    json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
+) -> None:
+    """Génère un QCM à partir d'un document indexé de l'élève."""
+    try:
+        try:
+            service = _build_qcm_service()
+        except Exception as exc:
+            console.print(f"[bold red]✗ Initialisation impossible[/bold red] — {exc}")
+            raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+        result = service.generate(pseudo, subject, document_id, n=n)
+    except QcmGenerationError as exc:
+        kind = exc.kind
+        if kind == "document_not_found" or kind == "no_chunks" or kind == "invalid_input":
+            _print_qcm_error(kind, str(exc), json_output=json_output)
+            raise typer.Exit(code=EXIT_QCM_DOCUMENT_NOT_FOUND) from exc
+        # malformed_output / storage_failure map to a storage-style failure.
+        _print_qcm_error(kind, str(exc), json_output=json_output)
+        raise typer.Exit(code=EXIT_QCM_LLM_FAILURE) from exc
+    except InvalidPseudoError as exc:
+        console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:
+        console.print(f"[bold red]✗ Échec inattendu[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+    _print_qcm_result(result, json_output=json_output)
+    if not quiet and not json_output:
+        console.print("[bold green]✓ QCM généré[/bold green]")
     raise typer.Exit(code=EXIT_OK)
 
 

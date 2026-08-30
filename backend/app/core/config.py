@@ -63,6 +63,12 @@ class Settings(BaseSettings):
         "Je n'ai pas trouvé d'information sur ce sujet dans tes documents."
     )
 
+    # QCM generation (s03)
+    qcm_default_questions: int = 5
+    qcm_max_questions: int = 20
+    qcm_max_retries: int = 1
+    qcm_temperature: float = 0.0
+
 
 _settings: Settings | None = None
 
