@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database.models import (
+    Attempt,
     Base,
     Document,
     DocumentStatus,
@@ -169,3 +170,107 @@ class TestExerciseModel:
         assert len(bob) == 1
         assert ali[0].student_pseudo == "ali"
         assert bob[0].student_pseudo == "bob"
+
+
+class TestAttemptModel:
+    def test_create_attempt_with_raw_answers(self, session) -> None:
+        document_id = uuid.uuid4()
+        exercise = Exercise(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            type=ExerciseType.QCM,
+            document_id=document_id,
+            questions=[
+                {"question": "Q1", "options": ["a", "b", "c", "d"], "correct_index": 0}
+            ],
+        )
+        session.add(exercise)
+        session.commit()
+        session.refresh(exercise)
+
+        attempt = Attempt(
+            exercise_id=exercise.id,
+            student_pseudo="ali",
+            attempt_number=1,
+            is_success=True,
+            raw_answers=[0],
+        )
+        session.add(attempt)
+        session.commit()
+        session.refresh(attempt)
+
+        assert isinstance(attempt.id, uuid.UUID)
+        assert attempt.exercise_id == exercise.id
+        assert attempt.student_pseudo == "ali"
+        assert attempt.attempt_number == 1
+        assert attempt.is_success is True
+        assert attempt.raw_answers == [0]
+        assert attempt.answer_text is None
+        assert attempt.correction_level is None
+        assert isinstance(attempt.submitted_at, datetime)
+
+    def test_two_attempts_have_distinct_ids(self, session) -> None:
+        document_id = uuid.uuid4()
+        exercise = Exercise(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            type=ExerciseType.QCM,
+            document_id=document_id,
+            questions=[
+                {"question": "Q", "options": ["a", "b", "c", "d"], "correct_index": 0}
+            ],
+        )
+        session.add(exercise)
+        session.commit()
+        session.refresh(exercise)
+
+        a1 = Attempt(
+            exercise_id=exercise.id,
+            student_pseudo="ali",
+            attempt_number=1,
+            is_success=True,
+            raw_answers=[0],
+        )
+        a2 = Attempt(
+            exercise_id=exercise.id,
+            student_pseudo="ali",
+            attempt_number=2,
+            is_success=False,
+            raw_answers=[1],
+        )
+        session.add_all([a1, a2])
+        session.commit()
+
+        assert a1.id != a2.id
+
+    def test_filter_by_pseudo_returns_only_matching_rows(self, session) -> None:
+        document_id = uuid.uuid4()
+        exercise = Exercise(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            type=ExerciseType.QCM,
+            document_id=document_id,
+            questions=[
+                {"question": "Q", "options": ["a", "b", "c", "d"], "correct_index": 0}
+            ],
+        )
+        session.add(exercise)
+        session.commit()
+        session.refresh(exercise)
+
+        for pseudo, n in [("ali", 1), ("ali", 2), ("bob", 1)]:
+            session.add(
+                Attempt(
+                    exercise_id=exercise.id,
+                    student_pseudo=pseudo,
+                    attempt_number=n,
+                    is_success=True,
+                    raw_answers=[0],
+                )
+            )
+        session.commit()
+
+        ali = session.query(Attempt).filter(Attempt.student_pseudo == "ali").all()
+        bob = session.query(Attempt).filter(Attempt.student_pseudo == "bob").all()
+        assert len(ali) == 2
+        assert len(bob) == 1

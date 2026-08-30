@@ -208,13 +208,23 @@ attempts (
   id UUID PK,
   exercise_id FK,
   student_pseudo FK,
-  attempt_number,
+  attempt_number,                       -- per (pseudo, exercise_id), 1-based, via MAX
   is_success BOOL,
-  raw_answers JSONB,
-  answer_text TEXT,
+  raw_answers JSON,                     -- list[int], one per QCM question
+  answer_text TEXT,                     -- nullable; QCM leaves it null (s07)
   correction_level ("partial" | "partial_attempt_2" | "full" | "full_after_attempts"),
+                                        -- nullable; QCM leaves it null (s08)
   submitted_at
 )
+
+-- Note: ``attempts`` is created by s04. ``raw_answers`` is stored as
+-- ``sqlalchemy.JSON`` (portable SQLite/Postgres), not ``JSONB``, so the
+-- test suite can run on SQLite in-memory. ``answer_text`` and
+-- ``correction_level`` are pre-created nullable so the schema is stable
+-- for s07 (rédaction) and s08 (correction progressive) without an Alembic
+-- migration at every story boundary. The FKs to ``users.pseudo`` and
+-- ``exercises.id`` are deferred to s15 (the consolidation migration).
+-- ``init_db()`` applies the full ``Base`` metadata in dev/CI.
 
 evaluations (
   id UUID PK,
