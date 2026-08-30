@@ -26,6 +26,7 @@
 | Étape 4.8/9/10 | Tests pass, ruff clean, manual verification deferred to human. |
 
 **No drift** — the diff stays inside the plan's scope. Run interdicts respected:
+
 - `services/llm/client.py` (s02) untouched.
 - `services/agents/maths_agent.py` (s02) untouched.
 - `services/rag/chroma_store.py` (s01) untouched.
@@ -85,6 +86,7 @@ After each mutation, I reverted and re-ran the full suite. Final state: worktree
 ## Test quality
 
 The tests are not decorative. They:
+
 - Use real ChromaDB (`chromadb.EphemeralClient`) to verify the `where` filter actually applies.
 - Use real SQLite in-memory to verify the model persists and the generator's `session.add` is called.
 - Use a custom `_TrackingSession` wrapper specifically to detect `session.add` calls that would otherwise be invisible after `session.commit()` (a thoughtful, deliberate design).
@@ -94,13 +96,15 @@ The tests are not decorative. They:
 
 ## Findings
 
-#### critical
+### critical
+
 None.
 
-#### major
+### major
+
 None.
 
-#### minor
+### minor
 
 1. **No test for Pydantic str→int coercion on `correct_index`.** The research explicitly flagged this as a Pydantic 2 "neutralized trap" (LLM may output `"2"` as a string) and the plan says "le test doit verrouiller le comportement" — but no test asserts that `QcmQuestion.model_validate({"correct_index": "2", ...})` produces an int. I verified live that Pydantic 2.13.4 does coerce, so the behavior is correct; only the test is missing. This is a coverage gap, not a defect.
 

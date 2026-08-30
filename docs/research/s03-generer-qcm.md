@@ -136,12 +136,14 @@ metadata:
 **Score donné dans `docs/stories.md` : 3.** Score confirmé après lecture du code : **3**.
 
 Pas de divergence. Les pièces sont en place :
+
 - LLM client réutilisable (s02).
 - ChromaDB queryable par `document_id` metadata.
 - Pattern de persistence injectable.
 - Pydantic pour les schémas.
 
 Le nouveau code :
+
 - 1 modèle SQLAlchemy (`Exercise`).
 - 1 sous-dossier `services/exercises/` avec le générateur.
 - 1 méthode sur `Retriever` (ou query directe à ChromaDB) pour filtrer par document_id.
@@ -151,6 +153,7 @@ Le nouveau code :
 C'est bien découpé, sans combinatorial surface. Le piège principal est le parsing JSON du LLM (3 cas : valide direct, valide après extraction, invalide même après retry) — mais c'est borné et testable.
 
 Si on devait splitter, le cut naturel serait :
+
 - **s03a** : modèle `Exercise` + retrieval par `document_id` (shippable seul, testable).
 - **s03b** : générateur QCM + LLM + CLI (dépend de s03a pour la persistence).
 
@@ -163,6 +166,7 @@ Pas de split (verdict 3).
 ## Files touched (anticipated)
 
 **Code (5 fichiers nouveaux ou modifiés)** :
+
 - `backend/app/core/database/models.py` (modifié) : modèle `Exercise` ajouté.
 - `backend/app/core/config.py` (modifié) : `qcm_default_questions`, `qcm_max_questions`, `qcm_max_retries`, `qcm_temperature`.
 - `backend/.env.example` (modifié) : 4 nouvelles variables.
@@ -172,6 +176,7 @@ Pas de split (verdict 3).
 - `backend/app/cli.py` (modifié) : commande `generate-qcm` + `_build_qcm_service()`.
 
 **Test (3 nouveaux, 3 étendus)** :
+
 - `backend/tests/services/exercises/qcm_generator.py` (nouveau, 7-10 tests).
 - `backend/tests/cli/test_cli.py` (étendu, +4-5 tests).
 - `backend/tests/core/test_config.py` (étendu, +3-4 tests).
@@ -179,10 +184,12 @@ Pas de split (verdict 3).
 - `backend/tests/services/rag/test_retriever.py` (étendu, +2 tests pour `get_chunks_for_document`).
 
 **Doc** :
+
 - `docs/architecture.md` (modifié, mineure) : confirmer la forme du modèle `Exercise` (questions JSON).
 - Pas d'ADR nouveau (les décisions s'inscrivent dans l'architecture cible existante).
 
 **Non touchés** :
+
 - `backend/app/services/llm/client.py` (s02, intact, réutilisé).
 - `backend/app/services/agents/maths_agent.py` (s02, intact).
 - `backend/app/services/rag/chroma_store.py` (s01, intact — le générateur peut faire `coll.get(where=...)` directement, ou via `Retriever.get_chunks_for_document` qui appelle `get_collection`).
