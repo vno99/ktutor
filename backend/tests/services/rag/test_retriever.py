@@ -201,3 +201,73 @@ class TestRetrievedChunkModel:
         assert chunk.content == "text"
         assert chunk.metadata["filename"] == "x.pdf"
         assert chunk.distance == 0.1
+
+
+class TestGetChunksForDocument:
+    """s03 — chunk retrieval filtered by document_id, multi-tenant safe."""
+
+    def _seed_document(
+        self, chroma: ChromaStore, pseudo: str, subject: str, document_id: uuid.UUID, n: int
+    ) -> None:
+        coll = chroma.get_collection(subject, pseudo)
+        chunks = [
+            {
+                "id": f"{pseudo}-{document_id}-{i}",
+                "content": f"chunk {i}",
+                "metadata": {
+                    "chunk_index": i,
+                    "filename": "doc.pdf",
+                    "document_id": str(document_id),
+                },
+            }
+            for i in range(n)
+        ]
+        chroma.add_chunks(coll, chunks, [[0.1 * (i + 1), 0.2, 0.3] for i in range(n)])
+
+    def test_get_chunks_for_document_returns_only_target_document(
+        self, retriever: Retriever, chroma_store: ChromaStore, unique_pseudo: str
+    ) -> None:
+        target_id = uuid.uuid4()
+        other_id = uuid.uuid4()
+        self._seed_document(chroma_store, unique_pseudo, "maths", target_id, 3)
+        self._seed_document(chroma_store, unique_pseudo, "maths", other_id, 2)
+
+        chunks = retriever.get_chunks_for_document(
+            "maths", unique_pseudo, str(target_id), k=20
+        )
+        assert len(chunks) == 3
+        assert all(c.metadata["document_id"] == str(target_id) for c in chunks)
+
+    def test_get_chunks_for_document_cross_tenant_isolation(
+        self, retriever: Retriever, chroma_store: ChromaStore
+    ) -> None:
+        """AC3 — requesting by ``pseudo_a`` must never surface ``pseudo_b``'s chunks."""
+        pseudo_a = f"alice_{uuid.uuid4().hex[:8]}"
+        pseudo_b = f"bob_{uuid.uuid4().hex[:8]}"
+        target_id = uuid.uuid4()
+        # Same document_id used in two collections, with different content.
+        self._seed_document(chroma_store, pseudo_a, "maths", target_id, 2)
+        self._seed_document(chroma_store, pseudo_b, "maths", target_id, 2)
+
+        chunks = retriever.get_chunks_for_document(
+            "maths", pseudo_a, str(target_id), k=20
+        )
+        assert all(c.metadata.get("document_id") == str(target_id) for c in chunks)
+        # The collection for pseudo_a only has the 2 chunks we seeded for it.
+        assert len(chunks) == 2
+
+    def test_get_chunks_for_document_invalid_uuid_raises(
+        self, retriever: Retriever
+    ) -> None:
+        with pytest.raises(ValueError):
+            retriever.get_chunks_for_document(
+                "maths", "alice", "not-a-uuid", k=20
+            )
+
+    def test_get_chunks_for_document_empty_when_no_match(
+        self, retriever: Retriever, chroma_store: ChromaStore, unique_pseudo: str
+    ) -> None:
+        chunks = retriever.get_chunks_for_document(
+            "maths", unique_pseudo, str(uuid.uuid4()), k=20
+        )
+        assert chunks == []

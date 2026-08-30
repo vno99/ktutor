@@ -405,3 +405,186 @@ class TestChat:
             ],
         )
         assert result.exit_code == EXIT_GENERIC_ERROR
+
+
+# ---------------------------------------------------------------------------
+# generate-qcm command tests (s03)
+# ---------------------------------------------------------------------------
+
+
+class _StubQcmGenerator:
+    """Acts as ``QcmGenerator`` for the CLI without touching real services."""
+
+    def __init__(self, *, behavior: str = "ok") -> None:
+        self.behavior = behavior
+        self.calls: list[tuple[str, str, str, int | None]] = []
+
+    def generate(self, pseudo: str, subject: str, document_id: str, n: int | None = None):
+        from app.services.exercises.qcm_generator import (
+            QcmGenerationError,
+            QcmGenerationResult,
+            QcmQuestion,
+        )
+
+        self.calls.append((pseudo, subject, document_id, n))
+        if self.behavior == "ok":
+            return QcmGenerationResult(
+                exercise_id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+                questions=[
+                    QcmQuestion(question=f"Q{i + 1} ?", options=["a", "b", "c", "d"], correct_index=0)
+                    for i in range(3)
+                ],
+                raw='{"questions":[]}',
+            )
+        if self.behavior == "document_not_found":
+            raise QcmGenerationError(
+                "document_not_found",
+                "Document 00000000-0000-0000-0000-000000000000 introuvable pour le pseudo 'ali'.",
+            )
+        if self.behavior == "no_chunks":
+            raise QcmGenerationError("no_chunks", "Aucun extrait indexé.")
+        if self.behavior == "malformed_output":
+            raise QcmGenerationError("malformed_output", "Le LLM n'a pas renvoyé un JSON valide.")
+        raise RuntimeError(f"unknown behavior: {self.behavior}")
+
+
+@pytest.fixture()
+def stubbed_qcm_service(monkeypatch: pytest.MonkeyPatch):
+    """Patch ``_build_qcm_service`` so the CLI uses our QCM stub."""
+    holder: dict[str, _StubQcmGenerator] = {}
+
+    def _factory(behavior: str = "ok"):
+        stub = _StubQcmGenerator(behavior=behavior)
+        holder["svc"] = stub
+        monkeypatch.setattr("app.cli._build_qcm_service", lambda: stub)
+        return stub
+
+    return _factory, holder
+
+
+class TestGenerateQcm:
+    def test_generate_qcm_returns_zero_with_n_questions(
+        self, stubbed_qcm_service
+    ) -> None:
+        factory, holder = stubbed_qcm_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "generate-qcm",
+                "--pseudo",
+                "ali",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "3",
+                "--subject",
+                "maths",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+        assert holder["svc"].calls == [
+            ("ali", "maths", "11111111-1111-1111-1111-111111111111", 3)
+        ]
+
+    def test_generate_qcm_json_output_is_valid(self, stubbed_qcm_service) -> None:
+        factory, _ = stubbed_qcm_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "generate-qcm",
+                "--pseudo",
+                "ali",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "3",
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_OK
+        text = result.stdout
+        start = text.find("{")
+        assert start != -1, text
+        depth = 0
+        end = -1
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        assert end != -1, text
+        payload = json.loads(text[start:end])
+        assert payload["exercise_id"] == "22222222-2222-2222-2222-222222222222"
+        assert len(payload["questions"]) == 3
+        assert all(len(q["options"]) == 4 for q in payload["questions"])
+        assert all(0 <= q["correct_index"] <= 3 for q in payload["questions"])
+
+    def test_generate_qcm_document_not_found_returns_5(self, stubbed_qcm_service) -> None:
+        factory, _ = stubbed_qcm_service
+        factory("document_not_found")
+        result = runner.invoke(
+            app,
+            [
+                "generate-qcm",
+                "--pseudo",
+                "ali",
+                "--document-id",
+                "00000000-0000-0000-0000-000000000000",
+                "--n",
+                "3",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_generate_qcm_no_chunks_returns_5(self, stubbed_qcm_service) -> None:
+        factory, _ = stubbed_qcm_service
+        factory("no_chunks")
+        result = runner.invoke(
+            app,
+            [
+                "generate-qcm",
+                "--pseudo",
+                "ali",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "3",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_generate_qcm_malformed_output_returns_4(self, stubbed_qcm_service) -> None:
+        factory, _ = stubbed_qcm_service
+        factory("malformed_output")
+        result = runner.invoke(
+            app,
+            [
+                "generate-qcm",
+                "--pseudo",
+                "ali",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "3",
+            ],
+        )
+        assert result.exit_code == 4
+
+    def test_generate_qcm_help_works(self) -> None:
+        result = runner.invoke(app, ["generate-qcm", "--help"])
+        assert result.exit_code == 0
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--pseudo" in text
+        assert "--document-id" in text
+        assert "--n" in text
+
+    def test_help_lists_generate_qcm_command(self) -> None:
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "generate-qcm" in result.stdout

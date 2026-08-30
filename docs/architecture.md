@@ -189,12 +189,20 @@ exercises (
   id UUID PK,
   student_pseudo FK,
   subject,
-  type ("qcm" | "probleme" | "redaction" | "flashcards"),
-  statement TEXT,
-  expected_answer TEXT,
-  grading_criteria JSONB,
-  generated_at
+  type ("qcm" | "probleme" | "redaction" | "flashcards"),  -- s03 wired QCM only
+  document_id UUID FK -> documents.id,
+  statement TEXT,                     -- nullable; QCM leaves it null
+  expected_answer TEXT,               -- nullable; QCM leaves it null
+  grading_criteria JSON,              -- nullable; QCM leaves it null
+  questions JSON,                     -- QCM payload: [{question, options[4], correct_index}]
+  created_at                          -- "created_at" (not "generated_at") to match Document
 )
+
+-- Note: ``exercises.questions`` is stored as ``sqlalchemy.JSON`` (portable
+-- SQLite/Postgres) rather than ``JSONB`` so the test suite can run on
+-- SQLite in-memory. The schema above is the current ORM definition; an
+-- Alembic migration is deferred to s15 (consolidates ``exercises`` with
+-- the ``users`` FK). ``init_db()`` keeps the table in sync in dev/CI.
 
 attempts (
   id UUID PK,

@@ -15,9 +15,16 @@ The CLI / agent does **not** call ``ChromaStore.list_collections_for_pseudo``
 on the hot path — that would let a request for ``alice`` accidentally surface
 chunks from a different ``alice_*`` pseudo (suffix collision). The only safe
 way to read a tenant's data is to ask for it by ``(subject, pseudo)``.
+
+In s03, the retriever also exposes :meth:`get_chunks_for_document`, which
+filters the tenant's collection by ``document_id`` metadata. The same
+multi-tenant invariant holds: only the collection ``rag_<subject>_<pseudo>``
+is ever read.
 """
 
 from __future__ import annotations
+
+import uuid
 
 from pydantic import BaseModel
 
@@ -90,6 +97,55 @@ class Retriever:
                     content=doc,
                     metadata=dict(meta) if meta else {},
                     distance=float(dist) if dist is not None else None,
+                )
+            )
+        return chunks
+
+    def get_chunks_for_document(
+        self,
+        subject: str,
+        pseudo: str,
+        document_id: str,
+        k: int = 20,
+    ) -> list[RetrievedChunk]:
+        """Return the chunks of ``(subject, pseudo)`` belonging to ``document_id``.
+
+        Used by the QCM generator (s03) to ground the LLM on a single source
+        document. The query is double-locked: the collection is selected by
+        ``(subject, pseudo)`` (multi-tenant), then filtered by
+        ``document_id`` metadata (per-document). No semantic search — the
+        generator wants the full document, not the closest chunks.
+
+        Returns an empty list when no chunk matches. Raises ``ValueError``
+        when ``document_id`` is not a valid UUID.
+        """
+        # Validate the UUID up-front so a malformed value never reaches
+        # ChromaDB (and the caller can short-circuit on bad input).
+        uuid.UUID(document_id)
+
+        # Multi-tenant invariant: the pseudo is validated up front so a
+        # malformed value never reaches ChromaDB naming.
+        validate_pseudo(pseudo)
+
+        # The ONLY way to access a tenant's data: ask for the collection by
+        # (subject, pseudo). Never accept a collection name.
+        collection = self._chroma.get_collection(subject, pseudo)
+        raw = collection.get(
+            where={"document_id": document_id},
+            include=["documents", "metadatas"],
+            limit=k,
+        )
+
+        documents = raw.get("documents") or []
+        metadatas = raw.get("metadatas") or []
+
+        chunks: list[RetrievedChunk] = []
+        for doc, meta in zip(documents, metadatas):
+            chunks.append(
+                RetrievedChunk(
+                    content=doc,
+                    metadata=dict(meta) if meta else {},
+                    distance=None,
                 )
             )
         return chunks

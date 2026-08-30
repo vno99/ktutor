@@ -319,20 +319,14 @@ jobs:
             git config user.email "ktutor-bot@users.noreply.github.com"
             git add docs/ README.md .markdownlint.jsonc
             git commit -m "docs: auto-fix markdown lint violations" || true
-            # Push the auto-fix to the right branch:
-            # - on a pull_request run, push back to the PR head branch
-            #   (``github.head_ref``) so the fix lands in the PR itself;
-            # - on a push run, push to ``main`` directly.
-            # Earlier versions used a hard-coded ``git push origin main``,
-            # which fails on a pull_request run because the runner checks
-            # out the PR head in detached HEAD and no local ``main`` branch
-            # exists. See s01b/s02 review.
-            if [ "${{ github.event_name }}" = "pull_request" ]; then
-              git push origin HEAD:"${{ github.head_ref }}"
-            else
-              git push origin main
-            fi
-            echo "Auto-fixes committed and pushed."
+            # Auto-fix push is disabled: the runner checks out the PR head in
+            # detached HEAD and any push races with subsequent human pushes
+            # (see s02b/s03 reviews). The ``Lint markdown (verify)`` step
+            # below still enforces the rules — a future story may re-enable
+            # the auto-fix with a rebase-before-push (e.g. ``git pull
+            # --rebase origin ${{ github.head_ref }}``) once the PR
+            # checkout is not detached.
+            echo "Auto-fixes committed locally (push disabled, see comment)."
           else
             echo "No auto-fixes to commit."
           fi
