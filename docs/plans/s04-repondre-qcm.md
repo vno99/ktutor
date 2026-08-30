@@ -140,17 +140,20 @@ Issues de la recherche § Open questions, tranchées en checkpoint avec l'utilis
 ## Files touched
 
 **Code (3 fichiers modifiés, 1 nouveau)** :
+
 - `backend/app/core/database/models.py` (modifié, +~30 lignes pour `Attempt`).
 - `backend/app/services/exercises/qcm_grader.py` (nouveau, ~100 lignes).
 - `backend/app/cli.py` (modifié, +commande `submit_qcm`).
 - `docs/architecture.md` (modifié, ~5 lignes).
 
 **Test (2 nouveaux, 2 étendus)** :
+
 - `backend/tests/services/exercises/qcm_grader.py` (nouveau, 8-9 tests).
 - `backend/tests/cli/test_cli.py` (étendu, +4 tests pour `submit-qcm`).
 - `backend/tests/core/test_models.py` (étendu, +1 test pour `Attempt`).
 
 **Non touchés** :
+
 - `backend/app/services/exercises/qcm_generator.py` (s03, intact).
 - `backend/app/services/rag/retriever.py` (s02/s03, intact).
 - `backend/app/services/llm/client.py` (s02, intact).

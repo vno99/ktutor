@@ -119,6 +119,7 @@ metadata:
 **Score donné dans `docs/stories.md` : 2.** Score confirmé après lecture du code : **2**.
 
 Pas de divergence. Les pièces sont en place :
+
 - Modèle `Exercise` avec `questions` JSON (s03).
 - Pattern de session injectable.
 - Pattern de test `_TrackingSession` (s03).
@@ -126,6 +127,7 @@ Pas de divergence. Les pièces sont en place :
 - Pas de LLM (logique déterministe).
 
 Le nouveau code :
+
 - 1 modèle SQLAlchemy (`Attempt`).
 - 1 module `qcm_grader.py` (~80 lignes).
 - 1 commande CLI.
@@ -140,20 +142,24 @@ Pas de split (verdict 2).
 ## Files touched (anticipated)
 
 **Code (4 fichiers modifiés, 1 nouveau)** :
+
 - `backend/app/core/database/models.py` (modifié, +~25 lignes pour `Attempt`).
 - `backend/app/services/exercises/qcm_grader.py` (nouveau, ~80 lignes).
 - `backend/app/cli.py` (modifié, +commande `submit_qcm`).
 - `docs/architecture.md` (modifié, confirmer le modèle `attempts`).
 
 **Test (2 nouveaux, 2 étendus)** :
+
 - `backend/tests/services/exercises/qcm_grader.py` (nouveau, 5-7 tests).
 - `backend/tests/cli/test_cli.py` (étendu, +3-4 tests pour `submit-qcm`).
 - `backend/tests/core/test_models.py` (étendu, +1-2 tests pour `Attempt`).
 
 **Doc** :
+
 - `docs/architecture.md` (modifié, mineure).
 
 **Non touchés** :
+
 - `backend/app/services/exercises/qcm_generator.py` (s03, intact).
 - `backend/app/services/rag/retriever.py` (s02/s03, intact).
 - `backend/app/services/llm/client.py` (s02, intact — s04 n'utilise pas de LLM).

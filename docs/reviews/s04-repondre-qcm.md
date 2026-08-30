@@ -23,6 +23,7 @@
 | Étape 4 — Run, Lint, Manual | Run + Lint done. Manual verification deferred to human (per plan § Task 7). |
 
 **No drift** — the diff stays inside the plan's scope. Run interdicts respected:
+
 - `services/exercises/qcm_generator.py` (s03) untouched.
 - `services/rag/retriever.py` (s02/s03) untouched.
 - `services/llm/client.py` (s02) untouched.
@@ -72,6 +73,7 @@ All three central invariants are test-protected and the bites bite. The cross-te
 ## Test quality
 
 The tests are not decorative. They:
+
 - Use real SQLite in-memory (via `Base.metadata.create_all` and `_TrackingSession`) to verify the model persists and the grader's `session.add(Attempt(...))` is called.
 - Use `QcmQuestion.model_validate` in the grader (defense-in-depth) to ensure malformed data in the DB triggers a clean error rather than a crash.
 - Script cross-tenant at the agent layer with a real session, asserting the LLM is never invoked.
@@ -80,9 +82,11 @@ The tests are not decorative. They:
 ## Findings
 
 #### critical
+
 None.
 
 #### major
+
 None.
 
 #### minor

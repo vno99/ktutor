@@ -23,9 +23,17 @@
                            // "see Tache 14". Disable the rule instead.
   "MD056": false,           // table-column-count is structural (some ADR tables
                            // use 5-6 columns by design)
-  "MD060": false            // table-column-style: cosmetic. The default "any"
+  "MD060": false,           // table-column-style: cosmetic. The default "any"
                            // style in markdownlint v0.41+ flags tables that are
                            // consistent in one style but not in the strict sense
                            // the rule expects. Our tables are valid GFM and
                            // render fine; no need to enforce a specific style.
+  "MD001": false            // heading-increment: review files use ## (section)
+                           // then ### (subsection) then #### (sub-subsection)
+                           // by design (e.g. "## Anti-hallucination" -> "###
+                           // critical" -> "#### Bite 1"). The strict
+                           // increment-by-one rule is too restrictive for our
+                           // review layout. Fix the pattern if a cleaner
+                           // hierarchy is needed, but the current structure
+                           // is the project convention. See s04 review.
 }
