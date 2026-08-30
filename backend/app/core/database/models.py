@@ -142,3 +142,54 @@ class Exercise(Base):
             f"<Exercise id={self.id} pseudo={self.student_pseudo!r} "
             f"type={self.type.value} subject={self.subject.value}>"
         )
+
+
+class Attempt(Base):
+    """A single submission to an exercise by a student.
+
+    QCM attempts (s04) populate ``raw_answers`` only — ``answer_text`` and
+    ``correction_level`` stay NULL until s07 (rédaction) and s08 (correction
+    progressive) wire them. The columns are pre-created here so the schema
+    is stable across the s04 → s08 stories; no Alembic migration is needed
+    because ``init_db()`` applies the full ``Base`` metadata in dev/CI.
+
+    The foreign key to ``users.pseudo`` and to ``exercises.id`` is
+    documented in string form because the ``users`` table is owned by
+    story s12 (auth). The constraints will be materialised by the s15
+    Alembic migration.
+    """
+
+    __tablename__ = "attempts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    exercise_id: Mapped[uuid.UUID] = mapped_column(
+        # FK to ``exercises.id`` (deferred to s15).
+        nullable=False,
+        index=True,
+    )
+    student_pseudo: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+        # FK intentionally deferred to s15 migration (users table not yet created).
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_success: Mapped[bool] = mapped_column(nullable=False)
+    raw_answers: Mapped[list[int]] = mapped_column(JSON, nullable=False)
+    answer_text: Mapped[str | None] = mapped_column(String(8192), nullable=True)
+    correction_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<Attempt id={self.id} pseudo={self.student_pseudo!r} "
+            f"exercise_id={self.exercise_id} attempt_number={self.attempt_number} "
+            f"is_success={self.is_success}>"
+        )

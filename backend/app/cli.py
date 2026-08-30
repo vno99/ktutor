@@ -8,6 +8,7 @@ Commands
 * ``upload`` — index a document into a student's per-pseudo RAG.
 * ``chat``  — ask a question against the indexed documents (s02).
 * ``generate-qcm`` — generate a QCM from a specific document (s03).
+* ``submit-qcm`` — submit answers to a previously generated QCM (s04).
 
 Exit codes (see ``docs/designs/s01-uploader-document.md`` § Conventions):
 
@@ -21,6 +22,7 @@ Exit codes (see ``docs/designs/s01-uploader-document.md`` § Conventions):
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
@@ -35,6 +37,7 @@ from app.services.exercises.qcm_generator import (
     QcmGenerationError,
     QcmGenerator,
 )
+from app.services.exercises.qcm_grader import QcmGrader, QcmGradingError
 from app.services.llm.client import build_llm_client
 from app.services.rag.chroma_store import ChromaStore, InvalidPseudoError
 from app.services.rag.embeddings import build_embedding_provider
@@ -387,6 +390,126 @@ def generate_qcm(
     _print_qcm_result(result, json_output=json_output)
     if not quiet and not json_output:
         console.print("[bold green]✓ QCM généré[/bold green]")
+    raise typer.Exit(code=EXIT_OK)
+
+
+# ---------------------------------------------------------------------------
+# submit-qcm command (s04)
+# ---------------------------------------------------------------------------
+
+
+# s04 maps QcmGradingError kinds to exit codes consistent with the existing
+# convention:
+#   5 — exercise_not_found / cross_tenant (same as upload/chat: the user
+#       pointed at a wrong or foreign exercise_id; no leak)
+#   4 — invalid_answers / invalid_exercise (bad input that cannot be
+#       persisted, treated like a storage failure: the pipeline cannot
+#       deliver a parseable result)
+EXIT_QCM_GRADER_NOT_FOUND = 5
+EXIT_QCM_GRADER_BAD_INPUT = EXIT_STORAGE_FAILURE  # 4
+
+
+def _build_grader_service() -> QcmGrader:
+    """Wire the QCM grader (s04).
+
+    No S3, no OCR, no ChromaDB, no LLM. The session factory is the only
+    dependency; ``init_db()`` creates the ``attempts`` table in dev/CI
+    (s15 will consolidate the Alembic migration).
+    """
+    db_session.init_db()
+    return QcmGrader(session_factory=db_session.get_session_factory())
+
+
+def _print_grading_result(result, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(
+            data={
+                "is_success": result.is_success,
+                "correct_count": result.correct_count,
+                "total": result.total,
+                "feedback": result.feedback,
+                "attempt_id": str(result.attempt_id),
+                "attempt_number": result.attempt_number,
+            }
+        )
+        return
+    title = (
+        "[bold green]✓ QCM réussi[/bold green]"
+        if result.is_success
+        else "[bold red]✗ QCM échoué[/bold red]"
+    )
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim")
+    table.add_column()
+    table.add_row("Score", f"{result.correct_count}/{result.total}")
+    table.add_row("Verdict", "Toutes les réponses sont correctes." if result.is_success else f"{result.correct_count}/{result.total} réponses correctes.")
+    table.add_row("Attempt ID", str(result.attempt_id))
+    table.add_row("Numéro de tentative", str(result.attempt_number))
+    console.print(Panel(table, title=title, border_style="green" if result.is_success else "red"))
+
+
+def _print_grading_error(kind: str, message: str, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(data={"status": "error", "kind": kind, "message": message})
+    else:
+        console.print(f"[bold red]✗ Échec du grading QCM[/bold red] — {message}")
+
+
+@app.command()
+def submit_qcm(
+    pseudo: str = typer.Option(..., "--pseudo", help="Pseudo de l'élève (regex ^[a-zA-Z0-9_]{3,32}$)"),
+    exercise_id: str = typer.Option(..., "--exercise-id", help="Identifiant UUID de l'exercice QCM"),
+    answers: str = typer.Option(..., "--answers", help="Réponses en JSON, ex: '[0,2,1,3,0]'"),
+    quiet: bool = typer.Option(False, "--quiet", help="N'affiche que la ligne finale ✓/✗"),
+    json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
+) -> None:
+    """Soumet les réponses à un QCM et affiche le verdict binaire."""
+    # Parse the answers as JSON up front: a malformed payload is a
+    # user error, not a service error, but it lands in the "bad input"
+    # exit bucket (4) for consistency with ``invalid_answers``.
+    try:
+        raw_answers = json.loads(answers)
+    except (ValueError, TypeError) as exc:
+        _print_grading_error("invalid_answers", f"--answers JSON invalide: {exc}", json_output=json_output)
+        raise typer.Exit(code=EXIT_QCM_GRADER_BAD_INPUT) from exc
+    if not isinstance(raw_answers, list) or not all(isinstance(x, int) and not isinstance(x, bool) for x in raw_answers):
+        _print_grading_error(
+            "invalid_answers",
+            "--answers doit être une liste d'entiers (ex: '[0,2,1,3,0]').",
+            json_output=json_output,
+        )
+        raise typer.Exit(code=EXIT_QCM_GRADER_BAD_INPUT)
+
+    try:
+        try:
+            service = _build_grader_service()
+        except Exception as exc:
+            console.print(f"[bold red]✗ Initialisation impossible[/bold red] — {exc}")
+            raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+        result = service.grade(pseudo, exercise_id, raw_answers)
+    except QcmGradingError as exc:
+        kind = exc.kind
+        if kind in ("exercise_not_found", "cross_tenant"):
+            _print_grading_error(kind, str(exc), json_output=json_output)
+            raise typer.Exit(code=EXIT_QCM_GRADER_NOT_FOUND) from exc
+        # invalid_answers / invalid_exercise / storage_failure land in 4.
+        _print_grading_error(kind, str(exc), json_output=json_output)
+        raise typer.Exit(code=EXIT_QCM_GRADER_BAD_INPUT) from exc
+    except InvalidPseudoError as exc:
+        console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:
+        console.print(f"[bold red]✗ Échec inattendu[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+    _print_grading_result(result, json_output=json_output)
+    if not quiet and not json_output:
+        console.print(
+            "[bold green]✓[/bold green]" if result.is_success else "[bold red]✗[/bold red]"
+        )
     raise typer.Exit(code=EXIT_OK)
 
 
