@@ -28,7 +28,7 @@
                            // consistent in one style but not in the strict sense
                            // the rule expects. Our tables are valid GFM and
                            // render fine; no need to enforce a specific style.
-  "MD001": false            // heading-increment: review files use ## (section)
+  "MD001": false,           // heading-increment: review files use ## (section)
                            // then ### (subsection) then #### (sub-subsection)
                            // by design (e.g. "## Anti-hallucination" -> "###
                            // critical" -> "#### Bite 1"). The strict
@@ -36,4 +36,11 @@
                            // review layout. Fix the pattern if a cleaner
                            // hierarchy is needed, but the current structure
                            // is the project convention. See s04 review.
+  "MD025": false            // single-title: our docs use a YAML frontmatter
+                           // (``title: ...``) plus a single H1. markdownlint
+                           // counts the frontmatter ``title:`` as a second H1
+                           // and flags the file. Frontmatter is the canonical
+                           // title source (used by mkdocs/hugo/etc.); the H1
+                           // inside the body is the human-readable duplicate
+                           // we keep for renderers that don't read frontmatter.
 }
