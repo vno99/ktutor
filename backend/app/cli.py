@@ -23,12 +23,24 @@ Exit codes (see ``docs/designs/s01-uploader-document.md`` § Conventions):
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+
+# Reconfigure stdout/stderr to UTF-8 so the rich console can write Unicode
+# characters (the "X" / "OK" markers, French accents) on Windows
+# consoles that default to cp1252. Without this, ``UnicodeEncodeError``
+# is raised on the first non-ASCII character at exit. See s04 review.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        # Python < 3.7 or already closed — best-effort only.
+        pass
 
 from app.core.config import get_settings
 from app.core.database import session as db_session
