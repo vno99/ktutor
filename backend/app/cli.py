@@ -44,7 +44,8 @@ for _stream in (sys.stdout, sys.stderr):
 
 from app.core.config import get_settings
 from app.core.database import session as db_session
-from app.services.agents.maths_agent import MathsAgent
+from app.core.database.models import Subject
+from app.services.agents import FrancaisAgent, MathsAgent, SubjectSupervisor
 from app.services.exercises.qcm_generator import (
     QcmGenerationError,
     QcmGenerator,
@@ -110,11 +111,17 @@ def _build_service() -> UploadService:
     )
 
 
-def _build_chat_service() -> MathsAgent:
-    """Wire the maths agent with its dependencies (ChromaDB, embeddings, LLM).
+def _build_chat_service() -> SubjectSupervisor:
+    """Wire the subject supervisor with all subject agents (s05).
 
-    No S3, no PostgreSQL, no OCR — chat is read-only and reads only the
-    ChromaDB collections populated by the upload command.
+    The supervisor dispatches to the right agent based on the
+    ``--subject`` flag. No S3, no PostgreSQL, no OCR — chat is read-only
+    and reads only the ChromaDB collections populated by the upload
+    command.
+
+    Both agents share the same LLM, retriever and ``no_document_message``
+    so the multi-tenant invariant and the no-hallucination fallback are
+    uniform across subjects.
     """
     settings = get_settings()
     chroma = ChromaStore(persist_directory=settings.chroma_persist_directory)
@@ -124,11 +131,20 @@ def _build_chat_service() -> MathsAgent:
     )
     llm = build_llm_client(settings)
     retriever = Retriever(chroma_store=chroma, embeddings=embeddings)
-    return MathsAgent(
+    maths = MathsAgent(
         llm=llm,
         retriever=retriever,
         top_k=settings.chat_top_k,
         no_document_message=settings.chat_no_document_message,
+    )
+    francais = FrancaisAgent(
+        llm=llm,
+        retriever=retriever,
+        top_k=settings.chat_top_k,
+        no_document_message=settings.chat_no_document_message,
+    )
+    return SubjectSupervisor(
+        {Subject.MATHS.value: maths, Subject.FRANCAIS.value: francais}
     )
 
 
@@ -297,11 +313,29 @@ def _print_chat_result(result, *, json_output: bool) -> None:
 @app.command()
 def chat(
     pseudo: str = typer.Option(..., "--pseudo", help="Pseudo de l'élève (regex ^[a-zA-Z0-9_]{3,32}$)"),
-    subject: str = typer.Option(..., "--subject", help="Matière (maths|francais)"),
+    subject: str = typer.Option(
+        ...,
+        "--subject",
+        help="Matière (maths|francais)",
+        case_sensitive=False,
+    ),
     question: str = typer.Option(..., "--question", help="Question posée à l'agent"),
     json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
 ) -> None:
     """Pose une question à l'agent sur les documents indexés de l'élève."""
+    # Defense in depth (D3): validate the subject BEFORE building any
+    # service. Unknown subjects are a user error, not a runtime failure.
+    valid_subjects = {s.value for s in Subject}
+    if subject.lower() not in valid_subjects:
+        console.print(
+            f"[bold red]✗ Matière inconnue[/bold red] — {subject!r}. "
+            f"Valeurs acceptées : {sorted(valid_subjects)}."
+        )
+        raise typer.Exit(code=EXIT_INVALID_PSEUDO)
+    # Normalise to the canonical lowercase form the supervisor and the
+    # ChromaDB collection-name convention both expect.
+    subject = subject.lower()
+
     try:
         try:
             agent = _build_chat_service()
@@ -312,6 +346,11 @@ def chat(
         result = agent.ask(subject, pseudo, question)
     except InvalidPseudoError as exc:
         console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
+    except ValueError as exc:
+        # SubjectSupervisor (or an agent) refused the subject — same
+        # bucket as an invalid pseudo per the D3 recommendation.
+        console.print(f"[bold red]✗ Matière invalide[/bold red] — {exc}")
         raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
     except SystemExit:
         raise

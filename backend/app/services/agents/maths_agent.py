@@ -14,21 +14,13 @@ them out.
 
 from __future__ import annotations
 
-import re
 from typing import Protocol
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from pydantic import BaseModel
 
+from app.services.agents.types import ChatResult, SourceCitation
 from app.services.llm.client import LlmClient
 from app.services.rag.retriever import RetrievedChunk
-
-CITATION_FORMAT = "[source: {filename}, chunk {chunk_index}]"
-"""Citation string format. Locked by AC2 — agents must produce a string
-that matches the regex ``\\[source: [^,]+, chunk \\d+\\]``."""
-
-CITATION_RE = re.compile(r"\[source: (?P<filename>[^,]+), chunk (?P<chunk_index>\d+)\]")
-
 
 SYSTEM_PROMPT = """Tu es un assistant pédagogique de mathématiques pour un élève de collège.
 
@@ -46,20 +38,6 @@ Règles strictes :
    — une citation par source utilisée.
 4. Tu réponds en français, de manière claire et concise, au niveau collège.
 """
-
-
-class SourceCitation(BaseModel):
-    """A parsed source citation, attached to a :class:`ChatResult`."""
-
-    filename: str
-    chunk_index: int
-
-
-class ChatResult(BaseModel):
-    """The structured result of a one-shot chat invocation."""
-
-    answer: str
-    sources: list[SourceCitation]
 
 
 class _RetrieverLike(Protocol):
@@ -100,46 +78,47 @@ class MathsAgent:
         if not chunks:
             return ChatResult(answer=self._no_document_message, sources=[])
 
-        user_prompt = self._build_user_prompt(question, chunks)
+        user_prompt = _build_user_prompt(question, chunks)
         response: AIMessage = self._llm.invoke(
             [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user_prompt)]
         )
 
-        sources = self._collect_sources(chunks)
+        sources = _collect_sources(chunks)
         return ChatResult(answer=response.content, sources=sources)
 
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
 
-    @staticmethod
-    def _build_user_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
-        """Format the user message: question + the retrieved chunks."""
-        lines: list[str] = [
-            "Question de l'élève :",
-            question,
-            "",
-            "Extraits de documents pertinents (utilise UNIQUEMENT ces extraits) :",
-        ]
-        for i, chunk in enumerate(chunks):
-            filename = chunk.metadata.get("filename", "unknown")
-            chunk_index = chunk.metadata.get("chunk_index", i)
-            lines.append(
-                f"[chunk {i} | source: {filename}, chunk {chunk_index}] {chunk.content}"
+# ------------------------------------------------------------------
+# Internals — module-level so the French agent can share them
+# ------------------------------------------------------------------
+
+
+def _build_user_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
+    """Format the user message: question + the retrieved chunks."""
+    lines: list[str] = [
+        "Question de l'élève :",
+        question,
+        "",
+        "Extraits de documents pertinents (utilise UNIQUEMENT ces extraits) :",
+    ]
+    for i, chunk in enumerate(chunks):
+        filename = chunk.metadata.get("filename", "unknown")
+        chunk_index = chunk.metadata.get("chunk_index", i)
+        lines.append(
+            f"[chunk {i} | source: {filename}, chunk {chunk_index}] {chunk.content}"
+        )
+    lines.append("")
+    lines.append("Réponds en français, en citant tes sources au format demandé.")
+    return "\n".join(lines)
+
+
+def _collect_sources(chunks: list[RetrievedChunk]) -> list[SourceCitation]:
+    """Build the citations list from the retrieved chunks' metadata."""
+    sources: list[SourceCitation] = []
+    for chunk in chunks:
+        filename = chunk.metadata.get("filename")
+        chunk_index = chunk.metadata.get("chunk_index")
+        if filename and chunk_index is not None:
+            sources.append(
+                SourceCitation(filename=str(filename), chunk_index=int(chunk_index))
             )
-        lines.append("")
-        lines.append("Réponds en français, en citant tes sources au format demandé.")
-        return "\n".join(lines)
-
-    @staticmethod
-    def _collect_sources(chunks: list[RetrievedChunk]) -> list[SourceCitation]:
-        """Build the citations list from the retrieved chunks' metadata."""
-        sources: list[SourceCitation] = []
-        for chunk in chunks:
-            filename = chunk.metadata.get("filename")
-            chunk_index = chunk.metadata.get("chunk_index")
-            if filename and chunk_index is not None:
-                sources.append(
-                    SourceCitation(filename=str(filename), chunk_index=int(chunk_index))
-                )
-        return sources
+    return sources

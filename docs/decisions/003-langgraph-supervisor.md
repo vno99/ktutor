@@ -22,6 +22,20 @@ Adopter **LangGraph** comme framework d'orchestration, avec le pattern **supervi
 
 Pour le POC, le routage est explicite par matière (le client envoie `--subject maths` ou `/subject=francais`). Le routage par contenu est une itération future (s05 trap).
 
+## Update — s05
+
+La story s05-agent-francais-chat livre un **dispatcher Python typé**
+(`SubjectSupervisor` dans `backend/app/services/agents/supervisor.py`)
+plutôt qu'un `StateGraph` `langgraph`. Justifications : (1) le routage
+par flag est un `if` typé, (2) `langgraph-supervisor` n'est pas encore
+installé (cf. `docs/research/s05-agent-francais-chat.md` § D1), (3) la
+migration vers un `StateGraph` est mécanique et reste encapsulée dans
+`SubjectSupervisor` — les agents individuels ne changent pas.
+
+Le `StateGraph` arrive quand le routage par contenu est implémenté (le
+client enverra une question, et le superviseur classifie la matière au
+lieu de la recevoir du caller).
+
 ## Considered options
 
 - **Multi-agent pur sans superviseur (chaque agent est appelé en parallèle, résultats fusionnés par un post-traitement)** — rejeté parce que la fusion est fragile (qui décide du bon agent ? qui tranche en cas de désaccord ?) et ne scale pas vers N matières.
