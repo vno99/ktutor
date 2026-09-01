@@ -1,0 +1,30 @@
+# Frontend build artifacts
+node_modules/
+.next/
+out/
+.turbo/
+.parcel-cache/
+*.tsbuildinfo
+
+# Coverage / test artifacts
+coverage/
+playwright-report/
+test-results/
+lighthouseci/
+
+# Env
+.env*.local
+
+# Logs
+pnpm-debug.log*
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

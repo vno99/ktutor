@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens — ktutor (cf. docs/design-system.md).
+ * Light mode by default, dark via [data-theme="dark"].
+ * Tokens are exposed as CSS variables (--color-*) AND registered with Tailwind v4
+ * via the @theme block so that utility classes (bg-primary, text-text-primary) work.
+ */
+@theme {
+  --color-primary: #3D5AFE;
+  --color-primary-strong: #1E2A8A;
+  --color-canvas: #FAFBFC;
+  --color-surface: #FFFFFF;
+  --color-surface-subtle: #F4F6FA;
+  --color-border: #E2E6EE;
+  --color-text-primary: #0D0F14;
+  --color-text-secondary: #5B6472;
+  --color-text-tertiary: #8B95A3;
+  --color-accent-warm: #FF6B4A;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-error: #DC2626;
+  --color-info: #0284C7;
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+:root {
+  --color-primary: #3D5AFE;
+  --color-primary-strong: #1E2A8A;
+  --color-canvas: #FAFBFC;
+  --color-surface: #FFFFFF;
+  --color-surface-subtle: #F4F6FA;
+  --color-border: #E2E6EE;
+  --color-text-primary: #0D0F14;
+  --color-text-secondary: #5B6472;
+  --color-text-tertiary: #8B95A3;
+  --color-accent-warm: #FF6B4A;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-error: #DC2626;
+  --color-info: #0284C7;
+}
+
+[data-theme="dark"] {
+  --color-primary: #7B8CFF;
+  --color-primary-strong: #3D5AFE;
+  --color-canvas: #0D0F14;
+  --color-surface: #161A22;
+  --color-surface-subtle: #1E232E;
+  --color-border: #2A2F3B;
+  --color-text-primary: #F4F6FA;
+  --color-text-secondary: #9AA3B2;
+  --color-text-tertiary: #6B7484;
+  --color-accent-warm: #FF8B6F;
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-info: #38BDF8;
+}
+
+html,
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * Accessibility: respect prefers-reduced-motion.
+ * Disables all animations to ~0ms so that they remain technically present
+ * (e.g. for screen readers that watch the live region) but are imperceptible.
+ * cf. docs/design-system.md l.245.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Focus visible — never remove outline without a replacement. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
