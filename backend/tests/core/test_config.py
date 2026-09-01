@@ -119,6 +119,27 @@ class TestFlashcardSettings:
         assert Settings().flashcards_default_n == 15
 
 
+class TestTextGraderSettings:
+    """LLM-as-judge text grader settings — s07 (submit-text)."""
+
+    def test_default_text_grader_max_retries_is_1(self) -> None:
+        assert Settings().text_grader_max_retries == 1
+
+    def test_default_text_grader_temperature_is_zero(self) -> None:
+        assert Settings().text_grader_temperature == 0.0
+
+    def test_default_text_grader_max_answer_chars_is_8000(self) -> None:
+        # Safety net below the String(8192) column ceiling of
+        # ``Attempt.answer_text`` (models.py:194).
+        assert Settings().text_grader_max_answer_chars == 8000
+
+    def test_text_grader_max_answer_chars_override_via_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TEXT_GRADER_MAX_ANSWER_CHARS", "4000")
+        assert Settings().text_grader_max_answer_chars == 4000
+
+
 class TestChatSettings:
     """Chat LLM settings — s02."""
 

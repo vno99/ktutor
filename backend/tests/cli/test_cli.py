@@ -1457,3 +1457,264 @@ class TestGenerateFlashcards:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
         assert "generate-flashcards" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# submit-text command tests (s07 — free-form text grading)
+# ---------------------------------------------------------------------------
+
+
+class _StubTextGrader:
+    """Acts as ``TextGrader`` for the CLI without touching real services."""
+
+    def __init__(self, *, behavior: str = "ok") -> None:
+        self.behavior = behavior
+        self.calls: list[tuple[str, str, str]] = []
+
+    def grade(self, pseudo: str, exercise_id: str, answer: str):
+        from app.services.exercises.text_grader import (
+            TextGradingError,
+            TextGradingResult,
+        )
+
+        self.calls.append((pseudo, exercise_id, answer))
+        if self.behavior == "ok":
+            return TextGradingResult(
+                is_success=True,
+                feedback="Bonne réponse.",
+                attempt_id=uuid.UUID("77777777-7777-7777-7777-777777777777"),
+                attempt_number=1,
+            )
+        if self.behavior == "echec":
+            return TextGradingResult(
+                is_success=False,
+                feedback="Réponse incomplète.",
+                attempt_id=uuid.UUID("88888888-8888-8888-8888-888888888888"),
+                attempt_number=1,
+            )
+        if self.behavior == "cross_tenant":
+            raise TextGradingError(
+                "cross_tenant", "Exercise introuvable pour 'bob'."
+            )
+        if self.behavior == "exercise_not_found":
+            raise TextGradingError("exercise_not_found", "Exercise introuvable.")
+        if self.behavior == "invalid_exercise_type":
+            raise TextGradingError(
+                "invalid_exercise_type", "Exercise de type 'qcm' refuse."
+            )
+        if self.behavior == "verdict_missing":
+            raise TextGradingError(
+                "verdict_missing", "Le service n'a pas pu analyser ta réponse."
+            )
+        if self.behavior == "answer_too_long":
+            raise TextGradingError(
+                "answer_too_long", "Réponse trop longue : 9000 caractères."
+            )
+        raise RuntimeError(f"unknown behavior: {self.behavior}")
+
+
+@pytest.fixture()
+def stubbed_text_grader(monkeypatch: pytest.MonkeyPatch):
+    """Patch ``_build_text_grader_service`` so the CLI uses our stub."""
+    holder: dict[str, _StubTextGrader] = {}
+
+    def _factory(behavior: str = "ok"):
+        stub = _StubTextGrader(behavior=behavior)
+        holder["svc"] = stub
+        monkeypatch.setattr(
+            "app.cli._build_text_grader_service", lambda: stub
+        )
+        return stub
+
+    return _factory, holder
+
+
+class TestSubmitText:
+    def test_submit_text_returns_zero_with_success(
+        self, stubbed_text_grader
+    ) -> None:
+        factory, holder = stubbed_text_grader
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "submit-text",
+                "--pseudo",
+                "ali",
+                "--exercise-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--answer",
+                "ma réponse",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+        assert holder["svc"].calls == [
+            ("ali", "11111111-1111-1111-1111-111111111111", "ma réponse")
+        ]
+
+    def test_submit_text_json_output_is_valid(
+        self, stubbed_text_grader
+    ) -> None:
+        factory, _ = stubbed_text_grader
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "submit-text",
+                "--pseudo",
+                "ali",
+                "--exercise-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--answer",
+                "ma réponse",
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_OK
+        text = result.stdout
+        start = text.find("{")
+        assert start != -1, text
+        depth = 0
+        end = -1
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        assert end != -1, text
+        payload = json.loads(text[start:end])
+        assert payload["is_success"] is True
+        assert payload["feedback"] == "Bonne réponse."
+        assert payload["attempt_id"] == "77777777-7777-7777-7777-777777777777"
+        assert payload["attempt_number"] == 1
+
+    def test_submit_text_echec_returns_zero_with_is_success_false(
+        self, stubbed_text_grader
+    ) -> None:
+        factory, _ = stubbed_text_grader
+        factory("echec")
+        result = runner.invoke(
+            app,
+            [
+                "submit-text",
+                "--pseudo",
+                "ali",
+                "--exercise-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--answer",
+                "ma réponse",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+
+    def test_submit_text_cross_tenant_returns_5(
+        self, stubbed_text_grader
+    ) -> None:
+        factory, _ = stubbed_text_grader
+        factory("cross_tenant")
+        result = runner.invoke(
+            app,
+            [
+                "submit-text",
+                "--pseudo",
+                "bob",
+                "--exercise-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--answer",
+                "ma réponse",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_submit_text_exercise_not_found_returns_5(
+        self, stubbed_text_grader
+    ) -> None:
+        factory, _ = stubbed_text_grader
+        factory("exercise_not_found")
+        result = runner.invoke(
+            app,
+            [
+                "submit-text",
+                "--pseudo",
+                "ali",
+                "--exercise-id",
+                "00000000-0000-0000-0000-000000000000",
+                "--answer",
+                "ma réponse",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_submit_text_invalid_exercise_type_returns_4(
+        self, stubbed_text_grader
+    ) -> None:
+        factory, _ = stubbed_text_grader
+        factory("invalid_exercise_type")
+        result = runner.invoke(
+            app,
+            [
+                "submit-text",
+                "--pseudo",
+                "ali",
+                "--exercise-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--answer",
+                "ma réponse",
+            ],
+        )
+        assert result.exit_code == 4
+
+    def test_submit_text_verdict_missing_returns_4(
+        self, stubbed_text_grader
+    ) -> None:
+        factory, _ = stubbed_text_grader
+        factory("verdict_missing")
+        result = runner.invoke(
+            app,
+            [
+                "submit-text",
+                "--pseudo",
+                "ali",
+                "--exercise-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--answer",
+                "ma réponse",
+            ],
+        )
+        assert result.exit_code == 4
+
+    def test_submit_text_answer_too_long_returns_2(
+        self, stubbed_text_grader
+    ) -> None:
+        factory, _ = stubbed_text_grader
+        factory("answer_too_long")
+        result = runner.invoke(
+            app,
+            [
+                "submit-text",
+                "--pseudo",
+                "ali",
+                "--exercise-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--answer",
+                "x" * 9000,
+            ],
+        )
+        assert result.exit_code == 2
+
+    def test_submit_text_help_works(self) -> None:
+        result = runner.invoke(app, ["submit-text", "--help"])
+        assert result.exit_code == 0
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--pseudo" in text
+        assert "--exercise-id" in text
+        assert "--answer" in text
+
+    def test_help_lists_submit_text_command(self) -> None:
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "submit-text" in result.stdout

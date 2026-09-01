@@ -97,6 +97,24 @@ class Settings(BaseSettings):
     # Maximum length of a card's ``back`` (answer) — same rationale.
     flashcards_max_back_chars: int = 200
 
+    # Free-form text grader (s07 — submit-text, probleme / redaction).
+    # The grader is an LLM-as-judge: it compares the student's answer
+    # against ``Exercise.expected_answer`` and ``grading_criteria``.
+    # Number of retry attempts when the LLM output cannot be parsed
+    # against the strict ``VERDICT:`` regex. Pattern mirrors s03 /
+    # s06 / s06b above.
+    text_grader_max_retries: int = 1
+    # Sampling temperature for the text grader. 0 keeps the verdict
+    # reproducible (within the non-determinism budget of the upstream
+    # LLM provider).
+    text_grader_temperature: float = 0.0
+    # Safety net below the String(8192) column ceiling of
+    # ``Attempt.answer_text`` (models.py:194) — a 192-char margin so
+    # the grader raises ``answer_too_long`` before the DB rejects the
+    # row. The CLI ``submit-text`` enforces the same limit at the
+    # Pydantic ``max_length`` boundary.
+    text_grader_max_answer_chars: int = 8000
+
 
 _settings: Settings | None = None
 
