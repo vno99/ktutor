@@ -9,6 +9,9 @@ Commands
 * ``chat``  — ask a question against the indexed documents (s02).
 * ``generate-qcm`` — generate a QCM from a specific document (s03).
 * ``submit-qcm`` — submit answers to a previously generated QCM (s04).
+* ``generate-exercise`` — generate a free-style exercise (s06).
+* ``generate-flashcards`` — generate a flashcard deck (s06b).
+* ``submit-text`` — submit a free-form text answer (s07, LLM-as-judge).
 
 Exit codes (see ``docs/designs/s01-uploader-document.md`` § Conventions):
 
@@ -59,6 +62,7 @@ from app.services.exercises.qcm_generator import (
     QcmGenerator,
 )
 from app.services.exercises.qcm_grader import QcmGrader, QcmGradingError
+from app.services.exercises.text_grader import TextGrader, TextGradingError
 from app.services.llm.client import build_llm_client
 from app.services.rag.chroma_store import ChromaStore, InvalidPseudoError
 from app.services.rag.embeddings import build_embedding_provider
@@ -832,6 +836,124 @@ def generate_flashcards(
     _print_flashcard_result(result, json_output=json_output)
     if not quiet and not json_output:
         console.print("[bold green]✓ Deck de flashcards généré[/bold green]")
+    raise typer.Exit(code=EXIT_OK)
+
+
+# ---------------------------------------------------------------------------
+# submit-text command (s07 — LLM-as-judge text grading)
+# ---------------------------------------------------------------------------
+
+
+# s07 follows the s04 / s06 / s06b exit code convention:
+#   5 — exercise_not_found / cross_tenant (same as submit-qcm: the user
+#       pointed at a wrong or foreign exercise_id; no leak)
+#   4 — invalid_exercise_type / verdict_missing / llm_failure /
+#       storage_failure (bad input or LLM-side inconsistency, treated as
+#       a pipeline failure)
+#   2 — answer_too_long (user error: the response exceeded the configured
+#       ``text_grader_max_answer_chars`` safety net)
+EXIT_TEXT_NOT_FOUND = 5
+EXIT_TEXT_BAD_INPUT = EXIT_STORAGE_FAILURE  # 4
+EXIT_TEXT_TOO_LONG = 2
+
+
+def _build_text_grader_service() -> TextGrader:
+    """Wire the free-form text grader (s07).
+
+    Mirrors :func:`_build_grader_service`: no S3, no OCR, no ChromaDB.
+    The LLM is required (LLM-as-judge); the session factory is wired so
+    the ``Attempt`` row is persisted with ``answer_text`` populated and
+    ``raw_answers=[]``. ``init_db()`` creates the ``attempts`` table in
+    dev/CI (s15 will consolidate the Alembic migration).
+    """
+    settings = get_settings()
+    llm = build_llm_client(settings)
+    db_session.init_db()
+    return TextGrader(
+        llm=llm,
+        session_factory=db_session.get_session_factory(),
+        max_retries=settings.text_grader_max_retries,
+        temperature=settings.text_grader_temperature,
+        max_answer_chars=settings.text_grader_max_answer_chars,
+    )
+
+
+def _print_text_result(result, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(
+            data={
+                "is_success": result.is_success,
+                "feedback": result.feedback,
+                "attempt_id": str(result.attempt_id),
+                "attempt_number": result.attempt_number,
+            }
+        )
+        return
+    title = (
+        "[bold green]✓ Exercice réussi[/bold green]"
+        if result.is_success
+        else "[bold red]✗ Exercice échoué[/bold red]"
+    )
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim")
+    table.add_column()
+    table.add_row("Verdict", "Réussite" if result.is_success else "Échec")
+    table.add_row("Appréciation", result.feedback)
+    table.add_row("Attempt ID", str(result.attempt_id))
+    table.add_row("Numéro de tentative", str(result.attempt_number))
+    console.print(Panel(table, title=title, border_style="green" if result.is_success else "red"))
+
+
+def _print_text_error(kind: str, message: str, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(data={"status": "error", "kind": kind, "message": message})
+    else:
+        console.print(f"[bold red]✗ Échec du grading texte[/bold red] — {message}")
+
+
+@app.command()
+def submit_text(
+    pseudo: str = typer.Option(..., "--pseudo", help="Pseudo de l'élève (regex ^[a-zA-Z0-9_]{3,32}$)"),
+    exercise_id: str = typer.Option(..., "--exercise-id", help="Identifiant UUID de l'exercice (probleme|redaction)"),
+    answer: str = typer.Option(..., "--answer", help="Réponse texte de l'élève"),
+    quiet: bool = typer.Option(False, "--quiet", help="N'affiche que la ligne finale ✓/✗"),
+    json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
+) -> None:
+    """Soumet une réponse texte à un exercice libre (probleme / redaction) et affiche le verdict binaire du LLM."""
+    try:
+        try:
+            service = _build_text_grader_service()
+        except Exception as exc:
+            console.print(f"[bold red]✗ Initialisation impossible[/bold red] — {exc}")
+            raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+        result = service.grade(pseudo, exercise_id, answer)
+    except TextGradingError as exc:
+        kind = exc.kind
+        if kind in ("exercise_not_found", "cross_tenant"):
+            _print_text_error(kind, str(exc), json_output=json_output)
+            raise typer.Exit(code=EXIT_TEXT_NOT_FOUND) from exc
+        if kind == "answer_too_long":
+            _print_text_error(kind, str(exc), json_output=json_output)
+            raise typer.Exit(code=EXIT_TEXT_TOO_LONG) from exc
+        # invalid_exercise_type / verdict_missing / llm_failure /
+        # storage_failure / invalid_answers all land in 4.
+        _print_text_error(kind, str(exc), json_output=json_output)
+        raise typer.Exit(code=EXIT_TEXT_BAD_INPUT) from exc
+    except InvalidPseudoError as exc:
+        console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:
+        console.print(f"[bold red]✗ Échec inattendu[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+    _print_text_result(result, json_output=json_output)
+    if not quiet and not json_output:
+        console.print(
+            "[bold green]✓[/bold green]" if result.is_success else "[bold red]✗[/bold red]"
+        )
     raise typer.Exit(code=EXIT_OK)
 
 
