@@ -1,5 +1,29 @@
-"""Specialised LangChain agents (one per subject).
+"""Specialised LangChain agents (one per subject) and their supervisor.
 
-The s02 story ships a single agent (maths). The supervisor and a French
-agent arrive in s05 — see ``docs/architecture.md``.
+Public surface (s05):
+
+* :class:`MathsAgent` — RAG-backed maths agent (s02).
+* :class:`FrancaisAgent` — RAG-backed French agent (s05).
+* :class:`SubjectSupervisor` — typed Python dispatcher (s05, ADR 003
+  update). Routes by ``--subject`` flag. NOT a ``StateGraph`` langgraph
+  — that swap is deferred to the content-routing iteration.
+* :class:`SubjectAgent` — the Protocol the supervisor speaks against.
+* :class:`ChatResult`, :class:`SourceCitation` — shared output schema.
 """
+
+from app.services.agents.citations import CITATION_FORMAT, CITATION_RE
+from app.services.agents.francais_agent import FrancaisAgent
+from app.services.agents.maths_agent import MathsAgent
+from app.services.agents.supervisor import SubjectAgent, SubjectSupervisor
+from app.services.agents.types import ChatResult, SourceCitation
+
+__all__ = [
+    "CITATION_FORMAT",
+    "CITATION_RE",
+    "ChatResult",
+    "FrancaisAgent",
+    "MathsAgent",
+    "SourceCitation",
+    "SubjectAgent",
+    "SubjectSupervisor",
+]

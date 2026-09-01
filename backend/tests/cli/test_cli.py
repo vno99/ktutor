@@ -406,6 +406,99 @@ class TestChat:
         )
         assert result.exit_code == EXIT_GENERIC_ERROR
 
+    # --- s05: French subject + supervisor wiring ----------------------------
+
+    def test_chat_with_francais_subject_routes_to_french_agent(
+        self, stubbed_chat_service
+    ) -> None:
+        """AC1 — ``--subject francais`` is wired to the supervisor/agent."""
+        factory, holder = stubbed_chat_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "francais",
+                "--question",
+                "C'est quoi un métaplasme ?",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+        # The supervisor must have forwarded the call with subject=francais.
+        assert holder["svc"].calls == [
+            ("francais", "ali", "C'est quoi un métaplasme ?")
+        ]
+
+    def test_chat_with_maths_subject_still_works(self, stubbed_chat_service) -> None:
+        """Regression — the s02 maths path must keep working unchanged."""
+        factory, holder = stubbed_chat_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--question",
+                "Qu'est-ce qu'une dérivée ?",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+        assert holder["svc"].calls == [
+            ("maths", "ali", "Qu'est-ce qu'une dérivée ?")
+        ]
+
+    def test_chat_rejects_unknown_subject(self, stubbed_chat_service) -> None:
+        """D3 — ``--subject histoire`` must be refused at the CLI."""
+        factory, holder = stubbed_chat_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "histoire",
+                "--question",
+                "Q?",
+            ],
+        )
+        # Defense in depth: the CLI rejects BEFORE the service is built,
+        # so the stub's ask() must never have been called.
+        assert result.exit_code == EXIT_INVALID_PSEUDO
+        assert holder["svc"].calls == []
+
+    def test_chat_francais_with_no_document_returns_no_document_message(
+        self, stubbed_chat_service
+    ) -> None:
+        """AC5 — a French question on an empty French collection returns the
+        no-document message (NOT a maths fallback).
+        """
+        factory, holder = stubbed_chat_service
+        factory("no_document")
+        result = runner.invoke(
+            app,
+            [
+                "chat",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "francais",
+                "--question",
+                "Q?",
+            ],
+        )
+        assert result.exit_code == EXIT_OK
+        assert holder["svc"].calls == [("francais", "ali", "Q?")]
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "Je n'ai rien trouvé" in text
+
 
 # ---------------------------------------------------------------------------
 # generate-qcm command tests (s03)

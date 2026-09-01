@@ -24,12 +24,12 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 
+from app.services.agents.citations import CITATION_FORMAT
 from app.services.agents.maths_agent import (
-    CITATION_FORMAT,
     SYSTEM_PROMPT,
-    ChatResult,
     MathsAgent,
 )
+from app.services.agents.types import ChatResult
 from app.services.llm.client import _LangChainChatWrapper
 from app.services.rag.chroma_store import ChromaStore
 from app.services.rag.retriever import RetrievedChunk, Retriever
