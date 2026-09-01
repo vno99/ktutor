@@ -37,10 +37,17 @@ class _RecordingSubjectAgent:
         self.expected_subject = expected_subject
         self.result = result or ChatResult(answer="ok", sources=[])
         self.calls: list[tuple[str, str, str]] = []
+        self.stream_calls: list[tuple[str, str, str]] = []
 
     def ask(self, subject: str, pseudo: str, question: str) -> ChatResult:
         self.calls.append((subject, pseudo, question))
         return self.result
+
+    async def astream(self, subject: str, pseudo: str, question: str):
+        self.stream_calls.append((subject, pseudo, question))
+        from app.services.agents.types import StreamChunk
+        yield StreamChunk(content=self.result.answer, event="token")
+        yield StreamChunk(content="", event="done", sources=list(self.result.sources))
 
 
 # ---------------------------------------------------------------------------

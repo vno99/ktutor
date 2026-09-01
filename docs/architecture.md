@@ -126,9 +126,11 @@ ktutor/
 ### Backend (Python)
 
 - **Endpoints FastAPI** : un sous-dossier par domaine dans `app/api/`. Chaque sous-dossier contient un `router.py` et des schémas Pydantic.
+- **Application FastAPI** : `app/main.py` construit `FastAPI(...)` avec un `lifespan` qui appelle `init_db()` au démarrage, monte `CORSMiddleware` (origines via `Settings.cors_allow_origins_list`), puis `include_router(...)` pour chaque sous-domaine de `app/api/`. Le superviseur est construit via la factory `app.services.agents.factory.build_subject_supervisor(settings)`, partagée avec le CLI. s09 est le premier story à introduire ce scaffolding (ADR 010).
 - **Services** : un sous-dossier par service dans `app/services/`. Pas de logique métier dans les routers — ils délèguent aux services.
 - **Agents LangGraph** : un fichier par agent dans `app/services/agents/`. Le superviseur est un fichier à part. Les agents reçoivent le `pseudo` du JWT en paramètre explicite, jamais du state global.
-- **Supervisor pattern (s05)** : le superviseur est un **dispatcher Python typé** (`SubjectSupervisor` dans `app/services/agents/supervisor.py`), pas un `StateGraph` `langgraph`. Il expose un `Protocol SubjectAgent` avec la signature `ask(subject, pseudo, question) -> ChatResult` et route par `subject` via un `dict[str, SubjectAgent]`. Voir ADR 003 (mise à jour s05) : le `StateGraph` est reporté à l'itération « routage par contenu ». La migration est encapsulée dans `SubjectSupervisor` — les agents individuels restent intacts. Le superviseur valide aussi `subject` (D3, défense en profondeur avec la validation côté agent).
+- **Supervisor pattern (s05)** : le superviseur est un **dispatcher Python typé** (`SubjectSupervisor` dans `app/services/agents/supervisor.py`), pas un `StateGraph` `langgraph`. Il expose un `Protocol SubjectAgent` avec la signature `ask(subject, pseudo, question) -> ChatResult` (one-shot, s02) et `astream(subject, pseudo, question) -> AsyncIterator[StreamChunk]` (s09). Il route par `subject` via un `dict[str, SubjectAgent]`. Voir ADR 003 (mise à jour s05) : le `StateGraph` est reporté à l'itération « routage par contenu ». La migration est encapsulée dans `SubjectSupervisor` — les agents individuels restent intacts. Le superviseur valide aussi `subject` (D3, défense en profondeur avec la validation côté agent).
+- **Streaming** : s09 expose le chat en SSE via `fastapi.responses.StreamingResponse` natif (PAS `sse-starlette`, voir ADR 010). Le format est `data: <json>\n\n` avec `ensure_ascii=False`. Le client de l'agent passe par `LlmClient.astream` (ajouté en s09 au Protocol) qui est un passthrough vers `BaseChatModel.astream`.
 - **Nommage** : snake_case pour les fichiers et fonctions, PascalCase pour les classes, kebab-case pour les URLs (`/documents/upload`, `/evaluations/score-manual`).
 - **Typage** : obligatoire. Utiliser `Optional`, `List`, `Dict` du module `typing` ou les builtins PEP 604 (`list[str]`, `str | None`) en Python 3.10+. Pydantic pour les schémas d'entrée/sortie.
 - **Tests** : `pytest`. Un test par AC (chaque AC devient un test). Tests d'isolation cross-tenant obligatoires pour les endpoints accédant à des données élève.
@@ -346,3 +348,7 @@ Liste actuelle :
 - `004-rag-isolation-by-collection.md` — pourquoi une collection ChromaDB par (matière × élève)
 - `005-auth-rs256-rbac.md` — pourquoi JWT RS256 + RBAC trois rôles
 - `006-frontend-nextjs-app-router.md` — pourquoi Next.js 16 App Router + i18n + a11y dès le départ
+- `007-minio-from-s01.md` — pourquoi MinIO (objet storage) pour les fichiers uploadés
+- `008-deepseek-ocr-2-for-vision.md` — pourquoi DeepSeek-OCR-2 pour la vision LLM
+- `009-seaweedfs-replaces-minio.md` — pourquoi SeaweedFS remplace MinIO en local
+- `010-fastapi-streaming.md` — pourquoi `StreamingResponse` natif + `LlmClient.astream` + `pseudo` dans le body (s09)
