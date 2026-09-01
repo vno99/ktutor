@@ -1215,3 +1215,245 @@ class TestGenerateExercise:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
         assert "generate-exercise" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# generate-flashcards command tests (s06b)
+# ---------------------------------------------------------------------------
+
+
+class _StubFlashcardGenerator:
+    """Acts as ``FlashcardGenerator`` for the CLI without touching real services."""
+
+    def __init__(self, *, behavior: str = "ok") -> None:
+        self.behavior = behavior
+        # (pseudo, subject, document_id, n)
+        self.calls: list[tuple[str, str, str, int | None]] = []
+
+    def generate(
+        self,
+        pseudo: str,
+        subject: str,
+        document_id: str,
+        n: int | None = None,
+    ):
+        from app.services.exercises.flashcard_generator import (
+            FlashcardDeck,
+            FlashcardGenerationError,
+            FlashcardGenerationResult,
+            FlashcardSchema,
+        )
+
+        self.calls.append((pseudo, subject, document_id, n))
+        if self.behavior == "ok":
+            cards = [
+                FlashcardSchema(front=f"Q{i + 1} ?", back=f"R{i + 1}.", topic="algebre")
+                for i in range(3)
+            ]
+            return FlashcardGenerationResult(
+                exercise_id=uuid.UUID("77777777-7777-7777-7777-777777777777"),
+                deck=FlashcardDeck(type="flashcards", cards=cards),
+                raw=json.dumps(
+                    {
+                        "type": "flashcards",
+                        "cards": [c.model_dump() for c in cards],
+                    }
+                ),
+            )
+        if self.behavior == "document_not_found":
+            raise FlashcardGenerationError(
+                "document_not_found",
+                "Document 00000000-0000-0000-0000-000000000000 introuvable pour 'ali'.",
+            )
+        if self.behavior == "no_chunks":
+            raise FlashcardGenerationError("no_chunks", "Aucun extrait indexé.")
+        if self.behavior == "malformed_output":
+            raise FlashcardGenerationError(
+                "malformed_output",
+                "Le LLM n'a pas renvoyé un deck valide après retry.",
+            )
+        if self.behavior == "invalid_input":
+            raise FlashcardGenerationError("invalid_input", "n=50 hors bornes [1, 30].")
+        raise RuntimeError(f"unknown behavior: {self.behavior}")
+
+
+@pytest.fixture()
+def stubbed_flashcard_service(monkeypatch: pytest.MonkeyPatch):
+    """Patch ``_build_flashcard_service`` so the CLI uses our flashcard stub."""
+    holder: dict[str, _StubFlashcardGenerator] = {}
+
+    def _factory(behavior: str = "ok"):
+        stub = _StubFlashcardGenerator(behavior=behavior)
+        holder["svc"] = stub
+        monkeypatch.setattr("app.cli._build_flashcard_service", lambda: stub)
+        return stub
+
+    return _factory, holder
+
+
+class TestGenerateFlashcards:
+    def test_generate_flashcards_returns_deck_with_front_back_topic(
+        self, stubbed_flashcard_service
+    ) -> None:
+        factory, holder = stubbed_flashcard_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "generate-flashcards",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "3",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+        assert holder["svc"].calls == [
+            ("ali", "maths", "11111111-1111-1111-1111-111111111111", 3)
+        ]
+
+    def test_generate_flashcards_json_output_is_valid(
+        self, stubbed_flashcard_service
+    ) -> None:
+        factory, _ = stubbed_flashcard_service
+        factory("ok")
+        result = runner.invoke(
+            app,
+            [
+                "generate-flashcards",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "3",
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_OK
+        text = result.stdout
+        start = text.find("{")
+        assert start != -1, text
+        depth = 0
+        end = -1
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        assert end != -1, text
+        payload = json.loads(text[start:end])
+        assert payload["exercise_id"] == "77777777-7777-7777-7777-777777777777"
+        assert "deck" in payload
+        assert len(payload["deck"]["cards"]) == 3
+        for c in payload["deck"]["cards"]:
+            assert "front" in c and len(c["front"]) > 0
+            assert "back" in c and len(c["back"]) > 0
+
+    def test_generate_flashcards_document_not_found_returns_5(
+        self, stubbed_flashcard_service
+    ) -> None:
+        factory, _ = stubbed_flashcard_service
+        factory("document_not_found")
+        result = runner.invoke(
+            app,
+            [
+                "generate-flashcards",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--document-id",
+                "00000000-0000-0000-0000-000000000000",
+                "--n",
+                "3",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_generate_flashcards_no_chunks_returns_5(
+        self, stubbed_flashcard_service
+    ) -> None:
+        factory, _ = stubbed_flashcard_service
+        factory("no_chunks")
+        result = runner.invoke(
+            app,
+            [
+                "generate-flashcards",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "3",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_generate_flashcards_malformed_output_returns_4(
+        self, stubbed_flashcard_service
+    ) -> None:
+        factory, _ = stubbed_flashcard_service
+        factory("malformed_output")
+        result = runner.invoke(
+            app,
+            [
+                "generate-flashcards",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "3",
+            ],
+        )
+        assert result.exit_code == 4
+
+    def test_generate_flashcards_invalid_n_returns_5(
+        self, stubbed_flashcard_service
+    ) -> None:
+        factory, _ = stubbed_flashcard_service
+        factory("invalid_input")
+        result = runner.invoke(
+            app,
+            [
+                "generate-flashcards",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--n",
+                "50",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_generate_flashcards_help_works(self) -> None:
+        result = runner.invoke(app, ["generate-flashcards", "--help"])
+        assert result.exit_code == 0
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--pseudo" in text
+        assert "--subject" in text
+        assert "--document-id" in text
+        assert "--n" in text
+
+    def test_help_lists_generate_flashcards_command(self) -> None:
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "generate-flashcards" in result.stdout

@@ -99,6 +99,26 @@ class TestFreeSettings:
         assert Settings().free_default_difficulty == "difficile"
 
 
+class TestFlashcardSettings:
+    """Flashcard deck generation settings — s06b (flashcards)."""
+
+    def test_default_flashcard_settings(self) -> None:
+        """All six FLASHCARDS_* settings have the agreed defaults."""
+        s = Settings()
+        assert s.flashcards_default_n == 10
+        assert s.flashcards_max_n == 30
+        assert s.flashcards_max_retries == 1
+        assert s.flashcards_temperature == 0.0
+        assert s.flashcards_max_front_chars == 200
+        assert s.flashcards_max_back_chars == 200
+
+    def test_flashcards_default_n_override_via_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FLASHCARDS_DEFAULT_N", "15")
+        assert Settings().flashcards_default_n == 15
+
+
 class TestChatSettings:
     """Chat LLM settings — s02."""
 

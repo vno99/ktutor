@@ -252,6 +252,32 @@ class TestExerciseModel:
         assert ex.grading_criteria == grading_criteria
         assert ex.questions is None
 
+    def test_create_flashcards_exercise_with_cards(self, session) -> None:
+        """s06b — ``flashcards`` exercises store the deck in the ``cards`` JSON column."""
+        document_id = uuid.uuid4()
+        cards = [
+            {"front": "Quelle est la dérivée de x^2 ?", "back": "2x", "topic": "dérivées"},
+            {"front": "Qu'est-ce qu'une primitive ?", "back": "Une fonction dont la dérivée...", "topic": None},
+        ]
+        ex = Exercise(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            type=ExerciseType.FLASHCARDS,
+            document_id=document_id,
+            cards=cards,
+        )
+        session.add(ex)
+        session.commit()
+        session.refresh(ex)
+
+        assert ex.type is ExerciseType.FLASHCARDS
+        assert ex.cards == cards
+        # All other polymorphic columns stay None.
+        assert ex.questions is None
+        assert ex.statement is None
+        assert ex.expected_answer is None
+        assert ex.grading_criteria is None
+
 
 class TestAttemptModel:
     def test_create_attempt_with_raw_answers(self, session) -> None:

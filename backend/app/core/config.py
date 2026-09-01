@@ -81,6 +81,22 @@ class Settings(BaseSettings):
     # the row.
     free_max_statement_chars: int = 8000
 
+    # Flashcard deck generation (s06b — flashcards).
+    # Default number of cards when ``--n`` is not provided.
+    flashcards_default_n: int = 10
+    # Hard cap on the number of cards per generation.
+    flashcards_max_n: int = 30
+    # Number of retry attempts when the LLM returns malformed JSON, or when
+    # the post-Pydantic check (duplicate fronts, external references) fires.
+    flashcards_max_retries: int = 1
+    # Sampling temperature for flashcard generation. 0 for reproducibility.
+    flashcards_temperature: float = 0.0
+    # Maximum length of a card's ``front`` (question) — enforced by the
+    # Pydantic ``max_length`` and re-checked after retry.
+    flashcards_max_front_chars: int = 200
+    # Maximum length of a card's ``back`` (answer) — same rationale.
+    flashcards_max_back_chars: int = 200
+
 
 _settings: Settings | None = None
 
