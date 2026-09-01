@@ -22,6 +22,27 @@ class Settings(BaseSettings):
     api_port: int = 8000
     debug: bool = False
     log_level: str = "INFO"
+    # Comma-separated list of allowed origins for CORS (s09). The
+    # operator must keep this in sync with the frontend's
+    # ``NEXT_PUBLIC_API_URL`` host (or its expected ``Origin`` header).
+    # ``cors_allow_origins_list`` parses the raw string into a list of
+    # origins (with whitespace stripped and empties dropped).
+    cors_allow_origins: str = "http://localhost:3000"
+    # Safety net below the chat stream's chunk counter — if a runaway
+    # agent yields more than this many chunks, the SSE router stops the
+    # stream. Defaults to a high but finite value.
+    chat_stream_max_chunks: int = 5000
+    # Heartbeat interval in milliseconds (s09 D6). 0 = disabled (YAGNI).
+    chat_stream_heartbeat_ms: int = 0
+
+    @property
+    def cors_allow_origins_list(self) -> list[str]:
+        """Parse ``cors_allow_origins`` into a list of trimmed origins."""
+        return [
+            origin.strip()
+            for origin in self.cors_allow_origins.split(",")
+            if origin.strip()
+        ]
 
     # Database
     database_url: str = "postgresql://ktutor:ktutor@localhost:5432/ktutor"

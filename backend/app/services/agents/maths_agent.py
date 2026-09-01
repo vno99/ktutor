@@ -4,21 +4,23 @@ The agent is intentionally narrow:
 
 * One system prompt, locked by tests (``SYSTEM_PROMPT``).
 * One citation format, locked by tests (``CITATION_FORMAT``).
-* No streaming, no chat memory, no tool calls. Those arrive in later stories
-  (s09 streaming, s19 history).
+* No chat memory, no tool calls. Those arrive in later stories (s19 history).
 
-The class follows the project's injection convention: the LLM client and
-the retriever are passed at construction time so the unit tests can swap
-them out.
+s09 extension: an :meth:`astream` method exposes the same retrieval +
+prompt + LLM pipeline as :meth:`ask` but yields ``StreamChunk`` events as
+the upstream model produces them, so the FastAPI SSE endpoint can flush
+tokens to the browser in real time. The one-shot ``ask`` path is
+preserved unchanged — CLI and tests still use it.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Protocol
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from app.services.agents.types import ChatResult, SourceCitation
+from app.services.agents.types import ChatResult, SourceCitation, StreamChunk
 from app.services.llm.client import LlmClient
 from app.services.rag.retriever import RetrievedChunk
 
@@ -85,6 +87,40 @@ class MathsAgent:
 
         sources = _collect_sources(chunks)
         return ChatResult(answer=response.content, sources=sources)
+
+    async def astream(
+        self, subject: str, pseudo: str, question: str
+    ) -> AsyncIterator[StreamChunk]:
+        """Yield the agent's response as ``StreamChunk`` events (s09).
+
+        Mirrors :meth:`ask` semantics (same retrieval, same prompt, same
+        no-document fallback) but yields one ``token`` event per upstream
+        chunk, then a single ``done`` event carrying the RAG sources.
+
+        The no-document short-circuit yields a single ``token`` whose
+        content is the fallback message — the SSE frontend can still
+        display "no document" as a single rendered message.
+        """
+        chunks = self._retriever.query(subject, pseudo, question, k=self._top_k)
+        sources = _collect_sources(chunks)
+
+        if not chunks:
+            yield StreamChunk(content=self._no_document_message, event="token")
+            yield StreamChunk(content="", event="done", sources=[])
+            return
+
+        user_prompt = _build_user_prompt(question, chunks)
+        async for ai_chunk in self._llm.astream(
+            [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user_prompt)]
+        ):
+            text = ai_chunk.content
+            # Upstream models may emit tool-call metadata chunks with
+            # empty content — we forward them as empty token events so
+            # the SSE stream doesn't lose ordering. The router / frontend
+            # can ignore empty tokens.
+            yield StreamChunk(content=text, event="token")
+
+        yield StreamChunk(content="", event="done", sources=sources)
 
 
 # ------------------------------------------------------------------

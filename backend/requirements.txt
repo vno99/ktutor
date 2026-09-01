@@ -19,6 +19,14 @@ Pillow>=10.0
 
 # HTTP
 httpx>=0.27
+# FastAPI + Uvicorn — s09 introduces the first HTTP entry point
+# (`app.main:app`). ``python-multipart`` is pulled in for s10
+# (multipart/form-data uploads) and is listed now to avoid a second PR
+# the moment s10 lands. ``sse-starlette`` is intentionally NOT added:
+# the SSE endpoint uses FastAPI's native ``StreamingResponse`` (D2).
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
 
 # Storage
 minio>=7.2

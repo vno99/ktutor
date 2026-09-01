@@ -11,26 +11,37 @@ The supervisor is the single entry point used by the CLI and (in s09+)
 by the FastAPI ``/chat`` endpoint. It adds one responsibility on top
 of the underlying agents: it validates the ``subject`` against the
 canonical enum (D3 — defense in depth with the agents' own check).
+
+s09 extension: an :meth:`astream` method is exposed alongside :meth:`ask`.
+Both methods share the same dispatch and validation logic; the router
+in ``app/api/chat/router.py`` calls ``astream`` so the SSE frontend
+receives tokens in real time.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 from app.core.database.models import Subject
-from app.services.agents.types import ChatResult
+from app.services.agents.types import ChatResult, StreamChunk
 
 
 @runtime_checkable
 class SubjectAgent(Protocol):
     """The minimal contract a subject agent must satisfy.
 
-    Mirrors the ``ask`` signature of :class:`MathsAgent` and
-    :class:`FrancaisAgent` so both concrete agents and any future one
-    can be plugged into the supervisor without changes.
+    Mirrors the ``ask`` and ``astream`` signatures of :class:`MathsAgent`
+    and :class:`FrancaisAgent` so both concrete agents and any future
+    one can be plugged into the supervisor without changes.
     """
 
     def ask(self, subject: str, pseudo: str, question: str) -> ChatResult:
+        ...
+
+    def astream(
+        self, subject: str, pseudo: str, question: str
+    ) -> AsyncIterator[StreamChunk]:
         ...
 
 
@@ -74,6 +85,25 @@ class SubjectSupervisor:
             )
         agent = self._subject_agents[subject]
         return agent.ask(subject, pseudo, question)
+
+    def astream(
+        self, subject: str, pseudo: str, question: str
+    ) -> AsyncIterator[StreamChunk]:
+        """Dispatch ``astream`` to the agent bound to ``subject``.
+
+        Yields:
+            The underlying agent's ``StreamChunk`` events, in order.
+
+        Raises:
+            ValueError: if ``subject`` is not a known :class:`Subject` value.
+        """
+        if subject not in self._subject_agents:
+            raise ValueError(
+                f"Unknown subject: {subject!r}. "
+                f"Expected one of: {sorted(self._subject_agents)!r}."
+            )
+        agent = self._subject_agents[subject]
+        return agent.astream(subject, pseudo, question)
 
 
 __all__ = ["SubjectAgent", "SubjectSupervisor"]

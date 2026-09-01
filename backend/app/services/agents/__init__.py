@@ -8,14 +8,15 @@ Public surface (s05):
   update). Routes by ``--subject`` flag. NOT a ``StateGraph`` langgraph
   — that swap is deferred to the content-routing iteration.
 * :class:`SubjectAgent` — the Protocol the supervisor speaks against.
-* :class:`ChatResult`, :class:`SourceCitation` — shared output schema.
+* :class:`ChatResult`, :class:`SourceCitation`, :class:`StreamChunk` —
+  shared output schema (s05 + s09).
 """
 
 from app.services.agents.citations import CITATION_FORMAT, CITATION_RE
 from app.services.agents.francais_agent import FrancaisAgent
 from app.services.agents.maths_agent import MathsAgent
 from app.services.agents.supervisor import SubjectAgent, SubjectSupervisor
-from app.services.agents.types import ChatResult, SourceCitation
+from app.services.agents.types import ChatResult, SourceCitation, StreamChunk
 
 __all__ = [
     "CITATION_FORMAT",
@@ -24,6 +25,7 @@ __all__ = [
     "FrancaisAgent",
     "MathsAgent",
     "SourceCitation",
+    "StreamChunk",
     "SubjectAgent",
     "SubjectSupervisor",
 ]

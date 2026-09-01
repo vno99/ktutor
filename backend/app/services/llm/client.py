@@ -11,14 +11,20 @@ Decisions locked in the s02 plan:
 * The factory returns a thin ``_LangChainChatWrapper`` so the rest of the
   codebase depends on a small ``LlmClient`` Protocol, not on a LangChain
   type directly.
+
+s09 extension: an ``astream`` method has been added to the Protocol so the
+FastAPI SSE endpoint can yield tokens as they arrive from the upstream
+chat model. The ``invoke`` method is preserved for the one-shot CLI and
+the non-streaming agent path. Both go through the same wrapper.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 
 from app.core.config import Settings
 
@@ -29,9 +35,17 @@ class LlmClient(Protocol):
 
     Marked ``runtime_checkable`` so callers (and tests) can use
     ``isinstance(instance, LlmClient)``.
+
+    The s09 addition is :meth:`astream` — a passthrough async generator
+    yielding :class:`AIMessageChunk` instances. The chunked streaming
+    contract is the only way the FastAPI SSE endpoint (``/api/chat/stream``)
+    can yield tokens as they arrive without buffering the full response.
     """
 
     def invoke(self, messages: list[BaseMessage]) -> AIMessage:
+        ...
+
+    def astream(self, messages: list[BaseMessage]) -> AsyncIterator[AIMessageChunk]:
         ...
 
 
@@ -46,6 +60,17 @@ class _LangChainChatWrapper:
         # the wrapper contract on that to keep the agent's import surface small.
         result = self._chat.invoke(messages)
         return result  # type: ignore[return-value]
+
+    async def astream(self, messages: list[BaseMessage]) -> AsyncIterator[AIMessageChunk]:
+        """Yield ``AIMessageChunk`` instances as the upstream model produces them.
+
+        This is a thin pass-through to ``BaseChatModel.astream`` — the
+        contract is whatever the upstream model decides to emit (the agent
+        only consumes ``chunk.content``). Buffers and reorderings are
+        upstream concerns; the wrapper preserves the order.
+        """
+        async for chunk in self._chat.astream(messages):
+            yield chunk  # type: ignore[misc]
 
 
 def build_llm_client(settings: Settings) -> LlmClient:

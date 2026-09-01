@@ -5,14 +5,17 @@ The only differences are:
 
 * the :data:`SYSTEM_PROMPT` (literary register, college-level, refusal rules,
   mandatory citations) — locked by tests,
-* a defensive ``subject == "francais"`` check at the top of :meth:`ask` so
-  a wrong caller cannot silently query the wrong ChromaDB collection.
+* a defensive ``subject == "francais"`` check at the top of both
+  :meth:`ask` and :meth:`astream` so a wrong caller cannot silently
+  query the wrong ChromaDB collection (defense in depth, s05 + s09).
 
 The two agents share the same :class:`Retriever` and the same
 :class:`LlmClient` interfaces — no duplication, no new dependency.
 """
 
 from __future__ import annotations
+
+from collections.abc import AsyncIterator
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -22,7 +25,7 @@ from app.services.agents.maths_agent import (
     _collect_sources,
     _RetrieverLike,
 )
-from app.services.agents.types import ChatResult
+from app.services.agents.types import ChatResult, StreamChunk
 from app.services.llm.client import LlmClient
 
 # 5 invariants from the research D4, locked by tests:
@@ -95,6 +98,37 @@ class FrancaisAgent:
 
         sources = _collect_sources(chunks)
         return ChatResult(answer=response.content, sources=sources)
+
+    async def astream(
+        self, subject: str, pseudo: str, question: str
+    ) -> AsyncIterator[StreamChunk]:
+        """Yield the agent's response as ``StreamChunk`` events (s09).
+
+        Mirrors :meth:`ask` semantics (same subject guard, same retrieval,
+        same prompt, same no-document fallback) but yields one ``token``
+        event per upstream chunk, then a single ``done`` event carrying
+        the RAG sources.
+        """
+        if subject != "francais":
+            raise ValueError(
+                f"FrancaisAgent only handles subject 'francais' (got {subject!r})."
+            )
+
+        chunks = self._retriever.query(subject, pseudo, question, k=self._top_k)
+        sources = _collect_sources(chunks)
+
+        if not chunks:
+            yield StreamChunk(content=self._no_document_message, event="token")
+            yield StreamChunk(content="", event="done", sources=[])
+            return
+
+        user_prompt = _build_user_prompt(question, chunks)
+        async for ai_chunk in self._llm.astream(
+            [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user_prompt)]
+        ):
+            yield StreamChunk(content=ai_chunk.content, event="token")
+
+        yield StreamChunk(content="", event="done", sources=sources)
 
 
 # Re-export the protocol so callers can import it from this module too.

@@ -12,11 +12,19 @@ in s05 so that:
   a stable schema.
 
 The shape is unchanged from s02 — only the import path moves.
+
+s09 extension: :class:`StreamChunk` is the per-event schema yielded by the
+agents' new ``astream`` method (one chunk per upstream token, plus a
+trailing ``done`` event carrying the RAG sources). The router in
+``app/api/chat/router.py`` translates each ``StreamChunk`` into an SSE
+event.
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class SourceCitation(BaseModel):
@@ -31,3 +39,27 @@ class ChatResult(BaseModel):
 
     answer: str
     sources: list[SourceCitation]
+
+
+class StreamChunk(BaseModel):
+    """One event emitted by the agents' ``astream`` method (s09).
+
+    Three shapes — distinguished by the ``event`` field:
+
+    * ``event="token"`` — a chunk of LLM text. ``content`` is the delta
+      (non-empty for real tokens, may be empty if the upstream model
+      emits a non-content chunk such as tool-call metadata).
+    * ``event="sources"`` — attached at the end of a successful stream to
+      expose the RAG sources. ``content`` is empty, ``sources`` carries
+      the :class:`SourceCitation` list.
+    * ``event="done"`` — sent as the FINAL event of every successful
+      stream, after all tokens. ``content`` is empty.
+
+    Failure events are NOT modeled here: the agents surface errors by
+    raising, and the SSE router translates the raise into an
+    ``{error, code}`` event.
+    """
+
+    content: str = ""
+    event: Literal["token", "sources", "done"] = "token"
+    sources: list[SourceCitation] = Field(default_factory=list)
