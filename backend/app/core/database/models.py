@@ -43,6 +43,11 @@ class ExerciseType(str, enum.Enum):
     # additions don't collide; the conflict on merge is a trivial union.
     PROBLEME = "probleme"
     REDACTION = "redaction"
+    # s06b — flashcards (recto: question, verso: réponse). Polymorphique
+    # via la colonne ``cards`` (JSON), distincte de ``questions`` (QCM)
+    # et de ``statement``/``expected_answer``/``grading_criteria``
+    # (probleme / redaction).
+    FLASHCARDS = "flashcards"
 
 
 class Document(Base):
@@ -136,6 +141,8 @@ class Exercise(Base):
     grading_criteria: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     # QCM payload — list of {question, options, correct_index}.
     questions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    # s06b — flashcards payload — list of {front, back, topic}.
+    cards: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -46,6 +46,10 @@ from app.core.config import get_settings
 from app.core.database import session as db_session
 from app.core.database.models import Subject
 from app.services.agents import FrancaisAgent, MathsAgent, SubjectSupervisor
+from app.services.exercises.flashcard_generator import (
+    FlashcardGenerationError,
+    FlashcardGenerator,
+)
 from app.services.exercises.free_generator import (
     FreeGenerationError,
     FreeGenerator,
@@ -210,6 +214,37 @@ def _build_free_service() -> FreeGenerator:
         max_retries=settings.free_max_retries,
         temperature=settings.free_temperature,
         max_statement_chars=settings.free_max_statement_chars,
+    )
+
+
+def _build_flashcard_service() -> FlashcardGenerator:
+    """Wire the flashcard deck generator (s06b).
+
+    Same plumbing as :func:`_build_qcm_service` and
+    :func:`_build_free_service`: ChromaDB + LLM, no S3/OCR. The session
+    factory is wired so the ``Exercise`` row is persisted with the
+    polymorphic ``cards`` JSON column. All six ``FLASHCARDS_*`` settings
+    are read from the typed ``Settings`` instance.
+    """
+    settings = get_settings()
+    chroma = ChromaStore(persist_directory=settings.chroma_persist_directory)
+    embeddings = build_embedding_provider(
+        llm_provider=settings.llm_provider,
+        openai_api_key=settings.openai_api_key,
+    )
+    llm = build_llm_client(settings)
+    retriever = Retriever(chroma_store=chroma, embeddings=embeddings)
+    db_session.init_db()
+    return FlashcardGenerator(
+        llm=llm,
+        retriever=retriever,
+        session_factory=db_session.get_session_factory(),
+        default_n=settings.flashcards_default_n,
+        max_n=settings.flashcards_max_n,
+        max_retries=settings.flashcards_max_retries,
+        temperature=settings.flashcards_temperature,
+        max_front_chars=settings.flashcards_max_front_chars,
+        max_back_chars=settings.flashcards_max_back_chars,
     )
 
 
@@ -702,6 +737,101 @@ def generate_exercise(
     _print_free_result(result, json_output=json_output)
     if not quiet and not json_output:
         console.print("[bold green]✓ Exercice généré[/bold green]")
+    raise typer.Exit(code=EXIT_OK)
+
+
+# ---------------------------------------------------------------------------
+# generate-flashcards command (s06b)
+# ---------------------------------------------------------------------------
+
+
+# s06b follows the s03 / s06 exit code convention:
+#   5 — document_not_found / no_chunks / invalid_input (treated as a
+#       user-error bucket: the user gave a wrong document_id, including
+#       the cross-tenant case, or an out-of-range n)
+#   4 — malformed_output (LLM pipeline could not deliver a parseable
+#       result after retry, including the duplicate_fronts /
+#       external_reference post-Pydantic checks that exhausted retries)
+EXIT_FLASHCARDS_NOT_FOUND = 5
+EXIT_FLASHCARDS_LLM_FAILURE = EXIT_STORAGE_FAILURE  # 4
+
+
+def _print_flashcard_result(result, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(
+            data={
+                "exercise_id": str(result.exercise_id),
+                "deck": result.deck.model_dump(),
+            }
+        )
+        return
+    body_lines = [
+        f"Exercise ID : {result.exercise_id}",
+        "",
+        f"Cartes : {len(result.deck.cards)}",
+        "",
+    ]
+    for i, card in enumerate(result.deck.cards, 1):
+        topic_label = f" [{card.topic}]" if card.topic else ""
+        body_lines.append(f"  {i}. Q : {card.front}{topic_label}")
+        body_lines.append(f"     R : {card.back}")
+    console.print(
+        Panel(
+            "\n".join(body_lines),
+            title="[bold blue]Deck de flashcards généré[/bold blue]",
+            border_style="blue",
+        )
+    )
+
+
+def _print_flashcard_error(kind: str, message: str, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(data={"status": "error", "kind": kind, "message": message})
+    else:
+        console.print(f"[bold red]✗ Échec de la génération des flashcards[/bold red] — {message}")
+
+
+@app.command()
+def generate_flashcards(
+    pseudo: str = typer.Option(..., "--pseudo", help="Pseudo de l'élève (regex ^[a-zA-Z0-9_]{3,32}$)"),
+    document_id: str = typer.Option(..., "--document-id", help="Identifiant UUID du document source"),
+    n: int = typer.Option(None, "--n", help="Nombre de cartes (défaut: flashcards_default_n)"),
+    subject: str = typer.Option("maths", "--subject", help="Matière (maths|francais)"),
+    quiet: bool = typer.Option(False, "--quiet", help="N'affiche que la ligne finale ✓/✗"),
+    json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
+) -> None:
+    """Génère un deck de flashcards (recto: question, verso: réponse) à partir d'un document indexé de l'élève."""
+    settings = get_settings()
+    chosen_n = n if n is not None else settings.flashcards_default_n
+    try:
+        try:
+            service = _build_flashcard_service()
+        except Exception as exc:
+            console.print(f"[bold red]✗ Initialisation impossible[/bold red] — {exc}")
+            raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+        result = service.generate(pseudo, subject, document_id, n=chosen_n)
+    except FlashcardGenerationError as exc:
+        kind = exc.kind
+        if kind in ("document_not_found", "no_chunks", "invalid_input"):
+            _print_flashcard_error(kind, str(exc), json_output=json_output)
+            raise typer.Exit(code=EXIT_FLASHCARDS_NOT_FOUND) from exc
+        # malformed_output (also reports duplicate_fronts / external_reference
+        # exhausted) maps to the LLM-failure bucket (4).
+        _print_flashcard_error(kind, str(exc), json_output=json_output)
+        raise typer.Exit(code=EXIT_FLASHCARDS_LLM_FAILURE) from exc
+    except InvalidPseudoError as exc:
+        console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:
+        console.print(f"[bold red]✗ Échec inattendu[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+    _print_flashcard_result(result, json_output=json_output)
+    if not quiet and not json_output:
+        console.print("[bold green]✓ Deck de flashcards généré[/bold green]")
     raise typer.Exit(code=EXIT_OK)
 
 
