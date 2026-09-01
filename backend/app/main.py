@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 from app.api.chat.router import router as chat_router
 from app.core.config import get_settings
@@ -33,10 +34,20 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Initialize the database schema on startup.
 
     ``init_db`` is idempotent (``Base.metadata.create_all`` is a no-op
-    when the tables already exist) so the lifespan can be invoked
-    safely on every reload.
+    when the tables already exist). When the database is unreachable
+    (e.g. unit tests that exercise HTTP routes without spinning up
+    PostgreSQL), the failure is logged and the application still
+    starts — the chat endpoints do not need a DB session in s09.
+    Alembic will own schema migrations from s13 onwards and the CLI
+    continues to call ``init_db`` explicitly on its own startup path.
     """
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:  # noqa: BLE001 - intentional: never block startup
+        logger.warning(
+            "lifespan: init_db() failed ({}); continuing without DB schema",
+            exc.__class__.__name__,
+        )
     yield
 
 
