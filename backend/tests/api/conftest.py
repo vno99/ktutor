@@ -20,6 +20,7 @@ two pre-canned behaviours (configured per-test via
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -110,6 +111,83 @@ def override_supervisor(supervisor_stub: SubjectSupervisor) -> Iterator[None]:
 @pytest.fixture()
 def client(override_supervisor: None) -> Iterator[TestClient]:
     """A :class:`TestClient` bound to ``app`` with the stub supervisor."""
+    with TestClient(app) as c:
+        yield c
+
+
+# ---------------------------------------------------------------------------
+# s10 — documents upload fixtures
+# ---------------------------------------------------------------------------
+#
+# The documents router calls ``app.api.documents.factory.get_upload_service_dep``
+# per request. Tests inject a configurable stub via FastAPI's
+# ``dependency_overrides`` so the real S3 / Chroma / OCR backends are
+# never touched. The stub's ``upload`` method can be parametrized per test
+# to return a successful ``UploadResult`` or raise a controlled
+# ``UploadError``.
+
+
+class _StubUploadService:
+    """Programmable double for :class:`UploadService`.
+
+    By default returns a successful ``UploadResult`` with a fixed
+    ``document_id``, ``chunks_count=3`` and ``status=INDEXED``. Tests
+    can override:
+
+    * :attr:`return_result` to control the returned object
+    * :attr:`raise_with` to raise a controlled ``UploadError``
+    * :attr:`call_log` to inspect the arguments the router passed
+    """
+
+    def __init__(self) -> None:
+        from app.core.database.models import DocumentStatus
+        from app.services.rag.upload_service import UploadResult
+
+        self.calls: list[tuple[str, str, str]] = []
+        self.raise_with: Exception | None = None
+        self.return_result: object = UploadResult(
+            document_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+            chunks_count=3,
+            duration_ms=42,
+            status=DocumentStatus.INDEXED,
+            collection="rag_maths_alice",
+            s3_key="students/alice/12345678-1234-5678-1234-567812345678/cours.pdf",
+            ocr_confidence=None,
+        )
+
+    def upload(self, file_path: str, pseudo: str, subject: str) -> object:
+        self.calls.append((file_path, pseudo, subject))
+        if self.raise_with is not None:
+            raise self.raise_with
+        return self.return_result
+
+
+@pytest.fixture()
+def upload_service_stub() -> _StubUploadService:
+    """A programmable :class:`UploadService` double."""
+    return _StubUploadService()
+
+
+@pytest.fixture()
+def override_upload_service(
+    upload_service_stub: _StubUploadService,
+) -> Iterator[None]:
+    """Replace the FastAPI dependency ``get_upload_service_dep`` for one test."""
+    from app.api.documents.factory import get_upload_service_dep
+
+    app.dependency_overrides[get_upload_service_dep] = lambda: upload_service_stub
+    yield
+    app.dependency_overrides.pop(get_upload_service_dep, None)
+
+
+@pytest.fixture()
+def documents_client(override_upload_service: None) -> Iterator[TestClient]:
+    """A :class:`TestClient` bound to ``app`` with the stub upload service.
+
+    The supervisor override is NOT applied — these tests do not exercise
+    the chat router. The lifespan still runs (init_db best-effort) but
+    the upload service is fully stubbed.
+    """
     with TestClient(app) as c:
         yield c
 

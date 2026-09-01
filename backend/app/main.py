@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.api.chat.router import router as chat_router
+from app.api.documents.router import router as documents_router
 from app.core.config import get_settings
 from app.core.database.session import init_db
 
@@ -68,6 +69,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_router)
+app.include_router(documents_router)
 
 
 __all__ = ["app"]
