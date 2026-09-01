@@ -199,28 +199,29 @@ metadata:
 ## Pièges identifiés (≥ 4 exigés, complexité 4)
 
 > **Piège n°1** (rappel) : l'algo de `CLAUDE.md:395-462` n'a qu'un seul état `partial`. La story exige DEUX états partiels distincts (`partial` et `partial_attempt_2`). Le plan doit étendre l'algo avec une branche `elif attempt_number == 1: "partial"` + `elif attempt_number == 2: "partial_attempt_2"`. Le tableau de l.303-310 confirme.
-
+>
 > **Piège n°2** (rappel) : la state machine **doit recevoir** un `is_success: bool` propre. Si l'orchestrateur calcule lui-même `is_success` (par exemple en re-inférant depuis `correct_count == total` du QCM), il y a duplication de logique et risque de drift. **Solution** : déléguer à `QcmGrader.grade()` (s04) pour le QCM, à `TextGrader.grade()` (s07) pour le texte. Le service s08 NE CONNAÎT PAS le type de grading — il consomme juste le verdict.
-
+>
 > **Piège n°3** (rappel) : `Attempt.raw_answers: Mapped[list[int]]` est `nullable=False` (`models.py:181`). Pour les exercices texte (s07), l'ORM va insérer une liste vide `[]` (Pydantic + `default=[]` au niveau service) ou bien le schéma doit évoluer. **À clarifier avec s07** : si s07 insère avec `raw_answers=None`, s08 doit faire `default=[]` côté service pour rester portable. **Recommandation** : faire comme s04, passer `raw_answers=[]` explicitement quand l'exercice n'est pas un QCM.
-
+>
 > **Piège n°4** (rappel) : le `ExerciseType` enum n'a que `QCM` aujourd'hui (`models.py:33-38`). Le test de la branche `else` (« exercice non-QCM ») doit être paramétrable pour accepter un mock ou un futur `ExerciseType.PROBLEME`. **Solution** : utiliser un mock ou un `Exercise(type=ExerciseType.QCM)` pour le test « texte » en attendant s07, avec un commentaire « sera levé en s07 ».
-
+>
 > **Piège n°5** (rappel) : la **garde multi-tenant** doit précéder la state machine. Le test croisé-temoin (AC8) doit passer par la couche service complète, pas seulement par la state machine. Sinon, un bug dans l'orchestrateur (par ex. oubli du check) passe inaperçu.
-
+>
 > **Piège n°6** (rappel) : `is_success=True` à la tentative 1 doit produire `full`, pas `partial` ni `partial_attempt_2`. C'est explicite dans l'AC5 (« success on attempt N (1 ≤ N ≤ 3) → `full` »). Le test AC6 doit l'assertir explicitement (« first-try success → `full` »), pas seulement « any success → `full` ».
-
+>
 > **Piège n°7** (rappel) : la **génération d'indices LLM est non-déterministe** et peut crasher (timeout, JSON invalide, modèle surchargé). Le service doit **toujours retourner** une `CorrectionResult` avec un `correction_level` (sinon, l'AC1 ne peut pas être testé). **Stratégie** : try/except autour de `llm.invoke(...)`. Si l'appel LLM échoue :
-  - Option A : retry une fois avec un prompt plus strict (cohérent avec s03 `qcm_generator.py:284-314`).
-  - Option B : fallback déterministe — retourner un hint générique (« Relisez le cours lié à cet exercice et réessayez. ») et logger un `warning` structuré.
-  - **Recommandation** : Option A (1 retry) + Option B (fallback générique si retry échoue). Plus robuste, aligné sur les patterns s02/s03.
-
+>
+> - Option A : retry une fois avec un prompt plus strict (cohérent avec s03 `qcm_generator.py:284-314`).
+> - Option B : fallback déterministe — retourner un hint générique (« Relisez le cours lié à cet exercice et réessayez. ») et logger un `warning` structuré.
+> - **Recommandation** : Option A (1 retry) + Option B (fallback générique si retry échoue). Plus robuste, aligné sur les patterns s02/s03.
+>
 > **Piège n°8** (rappel) : **concurrence sur `attempt_number`**. Le `MAX(attempt_number)` du s04 (`qcm_grader.py:260-281`) n'est pas transactionnellement safe : deux soumissions parallèles sur le même `(pseudo, exercise_id)` peuvent lire le même `MAX` et insérer deux rows avec le même `attempt_number`. Le test de l'AC5 (plusieurs soumissions) n'est pas concurrent, donc le piège n'est pas visible. **Recommandation** : ajouter une `UNIQUE(exercise_id, student_pseudo, attempt_number)` constraint en Alembic (s15) pour garantir l'invariant. Pour s08, **documenter** la limite (« non thread-safe, ajouter une contrainte en s15 ») et **tester** sérialisé. C'est cohérent avec ce que s04 a fait.
-
+>
 > **Piège n°9** (nouveau) : le **tableau des états de `CLAUDE.md:303-310`** liste CINQ états (`partial`, `partial_attempt_2`, `partial_attempt_3`, `full`, `full_after_attempts`) mais l'AC5 de la story (`docs/stories.md:311`) n'en retient que QUATRE (`partial`, `partial_attempt_2`, `full`, `full_after_attempts`). Le `partial_attempt_3` du tableau CLAUDE.md est en trop. **Action** : ne pas implémenter `partial_attempt_3`. Le `max_attempts=3` rend l'état inutile. **À documenter comme écart de spec** dans la PR (story dit 4 états, CLAUDE.md dit 5 états — la story prime, conformément à AGENTS.md « stories sont la source de vérité du périmètre »).
-
+>
 > **Piège n°10** (nouveau) : `feedback` retourné par le `QcmGrader` (`"X/Y réponses correctes."`) et par le `TextGrader` (à venir) est **informatif**, pas un hint. s08 doit le **conserver tel quel** dans la `CorrectionResult` (le client peut l'afficher à côté des hints) et **ne PAS** le substituer par un hint. C'est implicite dans l'AC1 (« feedback » est listé séparément de `hints`).
-
+>
 > **Piège n°11** (nouveau) : la **fermeture après 3 échecs** doit être testée par les DEUX côtés : (a) la state machine refuse `attempt_number=4` (lève `closed`), (b) le `QcmGrader` (s04) ne devrait même pas être appelé si l'exercice est fermé (le service s08 court-circuite). Le test de l'AC9 vérifie (a) et (b). Sinon, un mock qui court-circuite mal laisse passer une 4e soumission.
 
 ## Décisions d'architecture à prendre
