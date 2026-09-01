@@ -115,6 +115,13 @@ class Settings(BaseSettings):
     # Pydantic ``max_length`` boundary.
     text_grader_max_answer_chars: int = 8000
 
+    # Progressive correction (s08 — correction progressive des exercices).
+    # Max attempts before the exercise is closed (correction_level
+    # ``full_after_attempts``). A 4th submission raises
+    # ``ProgressiveCorrectionError("closed")`` and the CLI maps it to
+    # exit 6.
+    max_correction_attempts: int = 3
+
 
 _settings: Settings | None = None
 

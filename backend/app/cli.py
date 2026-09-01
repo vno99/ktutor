@@ -49,6 +49,12 @@ from app.core.config import get_settings
 from app.core.database import session as db_session
 from app.core.database.models import Subject
 from app.services.agents import FrancaisAgent, MathsAgent, SubjectSupervisor
+from app.services.correction.hints import HintGenerator
+from app.services.correction.progressive import (
+    CorrectionResult,
+    ProgressiveCorrectionError,
+    ProgressiveCorrectionService,
+)
 from app.services.exercises.flashcard_generator import (
     FlashcardGenerationError,
     FlashcardGenerator,
@@ -590,7 +596,7 @@ def submit_qcm(
     quiet: bool = typer.Option(False, "--quiet", help="N'affiche que la ligne finale ✓/✗"),
     json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
 ) -> None:
-    """Soumet les réponses à un QCM et affiche le verdict binaire."""
+    """Soumet les réponses à un QCM et applique la correction progressive (s08)."""
     # Parse the answers as JSON up front: a malformed payload is a
     # user error, not a service error, but it lands in the "bad input"
     # exit bucket (4) for consistency with ``invalid_answers``.
@@ -609,12 +615,25 @@ def submit_qcm(
 
     try:
         try:
-            service = _build_grader_service()
+            grader = _build_grader_service()
+            progressive = _build_progressive_service()
         except Exception as exc:
             console.print(f"[bold red]✗ Initialisation impossible[/bold red] — {exc}")
             raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
 
-        result = service.grade(pseudo, exercise_id, raw_answers)
+        # Run the s04 grader to obtain the verdict, then feed it into
+        # the s08 progressive service. The grader is the source of
+        # truth for ``is_success`` and ``feedback`` — the service
+        # never re-grades.
+        grading_result = grader.grade(pseudo, exercise_id, raw_answers)
+        result = progressive.evaluate(
+            pseudo,
+            exercise_id,
+            grade_callback=lambda _exercise, _pseudo: (
+                grading_result.is_success,
+                grading_result.feedback,
+            ),
+        )
     except QcmGradingError as exc:
         kind = exc.kind
         if kind in ("exercise_not_found", "cross_tenant"):
@@ -622,6 +641,16 @@ def submit_qcm(
             raise typer.Exit(code=EXIT_QCM_GRADER_NOT_FOUND) from exc
         # invalid_answers / invalid_exercise / storage_failure land in 4.
         _print_grading_error(kind, str(exc), json_output=json_output)
+        raise typer.Exit(code=EXIT_QCM_GRADER_BAD_INPUT) from exc
+    except ProgressiveCorrectionError as exc:
+        _print_progressive_error(exc.kind, str(exc), json_output=json_output)
+        if exc.kind == "closed":
+            raise typer.Exit(code=EXIT_PROGRESSIVE_CLOSED) from exc
+        if exc.kind in ("exercise_not_found", "cross_tenant"):
+            raise typer.Exit(code=EXIT_QCM_GRADER_NOT_FOUND) from exc
+        if exc.kind == "invalid_exercise":
+            raise typer.Exit(code=EXIT_QCM_GRADER_BAD_INPUT) from exc
+        # storage_failure / llm_failure land in 4 (bad input bucket).
         raise typer.Exit(code=EXIT_QCM_GRADER_BAD_INPUT) from exc
     except InvalidPseudoError as exc:
         console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
@@ -632,7 +661,7 @@ def submit_qcm(
         console.print(f"[bold red]✗ Échec inattendu[/bold red] — {exc}")
         raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
 
-    _print_grading_result(result, json_output=json_output)
+    _print_progressive_result(result, json_output=json_output)
     if not quiet and not json_output:
         console.print(
             "[bold green]✓[/bold green]" if result.is_success else "[bold red]✗[/bold red]"
@@ -857,6 +886,106 @@ EXIT_TEXT_BAD_INPUT = EXIT_STORAGE_FAILURE  # 4
 EXIT_TEXT_TOO_LONG = 2
 
 
+# ---------------------------------------------------------------------------
+# submit-qcm / submit-text extension (s08 — progressive correction)
+# ---------------------------------------------------------------------------
+
+# s08 introduces exit 6 (closed) for a 4th attempt on the same
+# exercise. The service raises ``ProgressiveCorrectionError("closed")``
+# and the CLI maps it to a non-zero exit code that did not exist
+# before. The mapping is consistent across ``submit-qcm`` and
+# ``submit-text``.
+EXIT_PROGRESSIVE_CLOSED = 6
+
+
+def _build_progressive_service() -> ProgressiveCorrectionService:
+    """Wire the progressive correction service (s08).
+
+    The service wraps the existing QCM (s04) and text (s07) graders
+    via a ``grade_callback`` callable. It does NOT modify them. The
+    hint generator is wired with the same LLM client as the chat
+    pipeline; ``max_retries`` reuses the s07
+    ``text_grader_max_retries`` setting (no new setting introduced
+    in s08). ``session_factory`` is wired so ``Attempt.correction_level``
+    is persisted.
+    """
+    settings = get_settings()
+    llm = build_llm_client(settings)
+    db_session.init_db()
+    hint_generator = HintGenerator(llm=llm, max_retries=settings.text_grader_max_retries)
+    return ProgressiveCorrectionService(
+        session_factory=db_session.get_session_factory(),
+        hint_generator=hint_generator,
+        max_attempts=settings.max_correction_attempts,
+    )
+
+
+def _print_progressive_result(
+    result: CorrectionResult, *, json_output: bool
+) -> None:
+    """Pretty-print a :class:`CorrectionResult` from the progressive service.
+
+    Used by both ``submit-qcm`` and ``submit-text`` after the service
+    has resolved the correction level. JSON output exposes every
+    field of the result; the human-readable output uses rich
+    panels.
+    """
+    if json_output:
+        console.print_json(
+            data={
+                "is_success": result.is_success,
+                "feedback": result.feedback,
+                "correction_level": result.correction_level,
+                "attempt_number": result.attempt_number,
+                "attempt_id": str(result.attempt_id),
+                "hints": list(result.hints),
+                "next_steps": result.next_steps,
+                "solution": result.solution,
+                "detailed_correction": result.detailed_correction,
+                "common_mistakes": result.common_mistakes,
+                "bonus_points": result.bonus_points,
+            }
+        )
+        return
+    title_by_level = {
+        "partial": "[bold yellow]Tentative 1 — indices pour t'aider[/bold yellow]",
+        "partial_attempt_2": "[bold yellow]Tentative 2 — indices plus précis[/bold yellow]",
+        "full": "[bold green]Bonne réponse ![/bold green]",
+        "full_after_attempts": "[bold blue]Correction complète après 3 tentatives[/bold blue]",
+    }
+    title = title_by_level.get(result.correction_level, "[bold]Résultat[/bold]")
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim")
+    table.add_column()
+    table.add_row("Verdict", "Réussite" if result.is_success else "Échec")
+    table.add_row("Appréciation", result.feedback)
+    table.add_row("Niveau de correction", result.correction_level)
+    table.add_row("Numéro de tentative", str(result.attempt_number))
+    if result.hints:
+        table.add_row("Indices", "\n".join(f"  - {h}" for h in result.hints))
+    if result.next_steps:
+        table.add_row("Prochaines étapes", result.next_steps)
+    if result.solution:
+        table.add_row("Solution", result.solution)
+    if result.bonus_points:
+        table.add_row("Points bonus", f"+{result.bonus_points}")
+    border_style = (
+        "green" if result.is_success
+        else "blue" if result.correction_level == "full_after_attempts"
+        else "yellow"
+    )
+    console.print(Panel(table, title=title, border_style=border_style))
+
+
+def _print_progressive_error(
+    kind: str, message: str, *, json_output: bool
+) -> None:
+    if json_output:
+        console.print_json(data={"status": "error", "kind": kind, "message": message})
+    else:
+        console.print(f"[bold red]✗ Échec de la correction progressive[/bold red] — {message}")
+
+
 def _build_text_grader_service() -> TextGrader:
     """Wire the free-form text grader (s07).
 
@@ -919,15 +1048,25 @@ def submit_text(
     quiet: bool = typer.Option(False, "--quiet", help="N'affiche que la ligne finale ✓/✗"),
     json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
 ) -> None:
-    """Soumet une réponse texte à un exercice libre (probleme / redaction) et affiche le verdict binaire du LLM."""
+    """Soumet une réponse texte à un exercice libre et applique la correction progressive (s08)."""
     try:
         try:
-            service = _build_text_grader_service()
+            grader = _build_text_grader_service()
+            progressive = _build_progressive_service()
         except Exception as exc:
             console.print(f"[bold red]✗ Initialisation impossible[/bold red] — {exc}")
             raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
 
-        result = service.grade(pseudo, exercise_id, answer)
+        # s07 grading first; the verdict is then fed to s08.
+        grading_result = grader.grade(pseudo, exercise_id, answer)
+        result = progressive.evaluate(
+            pseudo,
+            exercise_id,
+            grade_callback=lambda _exercise, _pseudo: (
+                grading_result.is_success,
+                grading_result.feedback,
+            ),
+        )
     except TextGradingError as exc:
         kind = exc.kind
         if kind in ("exercise_not_found", "cross_tenant"):
@@ -940,6 +1079,16 @@ def submit_text(
         # storage_failure / invalid_answers all land in 4.
         _print_text_error(kind, str(exc), json_output=json_output)
         raise typer.Exit(code=EXIT_TEXT_BAD_INPUT) from exc
+    except ProgressiveCorrectionError as exc:
+        _print_progressive_error(exc.kind, str(exc), json_output=json_output)
+        if exc.kind == "closed":
+            raise typer.Exit(code=EXIT_PROGRESSIVE_CLOSED) from exc
+        if exc.kind in ("exercise_not_found", "cross_tenant"):
+            raise typer.Exit(code=EXIT_TEXT_NOT_FOUND) from exc
+        if exc.kind == "invalid_exercise":
+            raise typer.Exit(code=EXIT_TEXT_BAD_INPUT) from exc
+        # storage_failure / llm_failure land in 4.
+        raise typer.Exit(code=EXIT_TEXT_BAD_INPUT) from exc
     except InvalidPseudoError as exc:
         console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
         raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
@@ -949,7 +1098,7 @@ def submit_text(
         console.print(f"[bold red]✗ Échec inattendu[/bold red] — {exc}")
         raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
 
-    _print_text_result(result, json_output=json_output)
+    _print_progressive_result(result, json_output=json_output)
     if not quiet and not json_output:
         console.print(
             "[bold green]✓[/bold green]" if result.is_success else "[bold red]✗[/bold red]"
