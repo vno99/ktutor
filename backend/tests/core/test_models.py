@@ -171,6 +171,87 @@ class TestExerciseModel:
         assert ali[0].student_pseudo == "ali"
         assert bob[0].student_pseudo == "bob"
 
+    def test_create_probleme_exercise_with_statement_expected_answer_and_grading_criteria(
+        self, session
+    ) -> None:
+        """s06 — ``probleme`` exercises store the statement/solution/criteria triple."""
+        document_id = uuid.uuid4()
+        statement = (
+            "Un train part de Paris à 14h00 et roule à 120 km/h. Un autre train part de "
+            "Lyon à 15h00 et roule à 150 km/h. À quelle heure se croisent-ils ?"
+        )
+        expected_answer = (
+            "Étape 1 : la distance Paris-Lyon est 465 km.\n"
+            "Étape 2 : le train 1 a 1h d'avance, il a parcouru 120 km au départ du train 2.\n"
+            "Étape 3 : la distance restante est 465 - 120 = 345 km.\n"
+            "Étape 4 : la vitesse relative est 120 + 150 = 270 km/h.\n"
+            "Étape 5 : le temps de croisement est 345 / 270 = 1.28 h ≈ 1h17.\n"
+            "Réponse : ils se croisent à 16h17 environ."
+        )
+        grading_criteria = [
+            "L'élève identifie la distance Paris-Lyon",
+            "L'élève calcule la vitesse relative",
+            "L'élève convertit le temps en heures/minutes",
+        ]
+        ex = Exercise(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            type=ExerciseType.PROBLEME,
+            document_id=document_id,
+            statement=statement,
+            expected_answer=expected_answer,
+            grading_criteria=grading_criteria,
+        )
+        session.add(ex)
+        session.commit()
+        session.refresh(ex)
+
+        assert ex.type is ExerciseType.PROBLEME
+        assert ex.statement == statement
+        assert ex.expected_answer == expected_answer
+        assert ex.grading_criteria == grading_criteria
+        # QCM payload stays None.
+        assert ex.questions is None
+
+    def test_create_redaction_exercise_with_statement_expected_answer_and_grading_criteria(
+        self, session
+    ) -> None:
+        """s06 — ``redaction`` exercises store the statement/solution/criteria triple."""
+        document_id = uuid.uuid4()
+        statement = (
+            "Rédige une nouvelle de 300 à 400 mots, registre narratif, dont le thème est "
+            "un objet trouvé qui change la vie du protagoniste. Présente ton texte avec "
+            "une introduction, un développement et une conclusion."
+        )
+        expected_answer = (
+            "Introduction : présenter le contexte et l'objet mystérieux.\n"
+            "Développement : raconter la découverte, le doute initial, puis le changement.\n"
+            "Conclusion : la nouvelle situation du protagoniste."
+        )
+        grading_criteria = [
+            "L'élève respecte la fourchette 300-400 mots",
+            "L'élève utilise un registre narratif cohérent",
+            "L'élève structure introduction, développement, conclusion",
+        ]
+        ex = Exercise(
+            student_pseudo="ali",
+            subject=Subject.FRANCAIS,
+            type=ExerciseType.REDACTION,
+            document_id=document_id,
+            statement=statement,
+            expected_answer=expected_answer,
+            grading_criteria=grading_criteria,
+        )
+        session.add(ex)
+        session.commit()
+        session.refresh(ex)
+
+        assert ex.type is ExerciseType.REDACTION
+        assert ex.statement == statement
+        assert ex.expected_answer == expected_answer
+        assert ex.grading_criteria == grading_criteria
+        assert ex.questions is None
+
 
 class TestAttemptModel:
     def test_create_attempt_with_raw_answers(self, session) -> None:

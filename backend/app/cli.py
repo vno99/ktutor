@@ -46,6 +46,10 @@ from app.core.config import get_settings
 from app.core.database import session as db_session
 from app.core.database.models import Subject
 from app.services.agents import FrancaisAgent, MathsAgent, SubjectSupervisor
+from app.services.exercises.free_generator import (
+    FreeGenerationError,
+    FreeGenerator,
+)
 from app.services.exercises.qcm_generator import (
     QcmGenerationError,
     QcmGenerator,
@@ -173,6 +177,39 @@ def _build_qcm_service() -> QcmGenerator:
         max_questions=settings.qcm_max_questions,
         max_retries=settings.qcm_max_retries,
         temperature=settings.qcm_temperature,
+    )
+
+
+def _build_free_service() -> FreeGenerator:
+    """Wire the free-style exercise generator (s06 — probleme, redaction).
+
+    Same plumbing as :func:`_build_qcm_service`: ChromaDB + LLM, no S3/OCR.
+    The session factory is wired so the ``Exercise`` row is persisted.
+    ``free_difficulty_options`` is a comma-separated string parsed into a
+    tuple here (s03 convention for ``qcm_max_questions``).
+    """
+    settings = get_settings()
+    chroma = ChromaStore(persist_directory=settings.chroma_persist_directory)
+    embeddings = build_embedding_provider(
+        llm_provider=settings.llm_provider,
+        openai_api_key=settings.openai_api_key,
+    )
+    llm = build_llm_client(settings)
+    retriever = Retriever(chroma_store=chroma, embeddings=embeddings)
+    db_session.init_db()
+    return FreeGenerator(
+        llm=llm,
+        retriever=retriever,
+        session_factory=db_session.get_session_factory(),
+        default_difficulty=settings.free_default_difficulty,
+        difficulty_options=tuple(
+            value.strip()
+            for value in settings.free_difficulty_options.split(",")
+            if value.strip()
+        ),
+        max_retries=settings.free_max_retries,
+        temperature=settings.free_temperature,
+        max_statement_chars=settings.free_max_statement_chars,
     )
 
 
@@ -561,6 +598,110 @@ def submit_qcm(
         console.print(
             "[bold green]✓[/bold green]" if result.is_success else "[bold red]✗[/bold red]"
         )
+    raise typer.Exit(code=EXIT_OK)
+
+
+# ---------------------------------------------------------------------------
+# generate-exercise command (s06 — probleme, redaction)
+# ---------------------------------------------------------------------------
+
+
+# s06 follows the s03 exit code convention:
+#   5 — document_not_found / no_chunks / invalid_type / invalid_difficulty
+#   4 — malformed_output / thin_expected_answer / statement_too_long
+#       (LLM-side inconsistencies, treated as a storage-style failure)
+EXIT_FREE_NOT_FOUND = 5
+EXIT_FREE_LLM_FAILURE = EXIT_STORAGE_FAILURE  # 4
+
+
+def _print_free_result(result, *, json_output: bool) -> None:
+    if json_output:
+        # ``result.exercise`` is a discriminated Union — use ``model_dump``
+        # to produce the JSON-friendly shape.
+        console.print_json(
+            data={
+                "exercise_id": str(result.exercise_id),
+                "exercise": result.exercise.model_dump(by_alias=True),
+            }
+        )
+        return
+    dump = result.exercise.model_dump(by_alias=True)
+    body_lines = [
+        f"Exercise ID : {result.exercise_id}",
+        "",
+        f"Type : {dump.get('type')}",
+        f"Sujet / thème : {dump.get('statement', '')[:120]}{'...' if len(dump.get('statement', '')) > 120 else ''}",
+        "",
+        "Critères d'évaluation :",
+    ]
+    for c in dump.get("grading_criteria", []):
+        body_lines.append(f"  - {c}")
+    console.print(
+        Panel(
+            "\n".join(body_lines),
+            title="[bold blue]Exercice généré[/bold blue]",
+            border_style="blue",
+        )
+    )
+
+
+def _print_free_error(kind: str, message: str, *, json_output: bool) -> None:
+    if json_output:
+        console.print_json(data={"status": "error", "kind": kind, "message": message})
+    else:
+        console.print(f"[bold red]✗ Échec de la génération de l'exercice[/bold red] — {message}")
+
+
+@app.command()
+def generate_exercise(
+    pseudo: str = typer.Option(..., "--pseudo", help="Pseudo de l'élève (regex ^[a-zA-Z0-9_]{3,32}$)"),
+    subject: str = typer.Option(..., "--subject", help="Matière (maths|francais)"),
+    type: str = typer.Option(..., "--type", help="Type d'exercice (probleme|redaction)"),
+    document_id: str = typer.Option(..., "--document-id", help="Identifiant UUID du document source"),
+    topic: str = typer.Option(..., "--topic", help="Sujet ou thème de l'exercice"),
+    difficulty: str = typer.Option(None, "--difficulty", help="Difficulté (facile|moyen|difficile)"),
+    quiet: bool = typer.Option(False, "--quiet", help="N'affiche que la ligne finale ✓/✗"),
+    json_output: bool = typer.Option(False, "--json", help="Sortie JSON pour scripts"),
+) -> None:
+    """Génère un exercice libre (problème de maths ou rédaction de français)."""
+    settings = get_settings()
+    chosen_difficulty = difficulty or settings.free_default_difficulty
+    try:
+        try:
+            service = _build_free_service()
+        except Exception as exc:
+            console.print(f"[bold red]✗ Initialisation impossible[/bold red] — {exc}")
+            raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+        result = service.generate(
+            pseudo, subject, type, document_id, topic, difficulty=chosen_difficulty
+        )
+    except FreeGenerationError as exc:
+        kind = exc.kind
+        if kind in (
+            "document_not_found",
+            "no_chunks",
+            "invalid_type",
+            "invalid_difficulty",
+        ):
+            _print_free_error(kind, str(exc), json_output=json_output)
+            raise typer.Exit(code=EXIT_FREE_NOT_FOUND) from exc
+        # malformed_output / thin_expected_answer / statement_too_long / storage_failure
+        # all land in 4 (LLM-side inconsistencies).
+        _print_free_error(kind, str(exc), json_output=json_output)
+        raise typer.Exit(code=EXIT_FREE_LLM_FAILURE) from exc
+    except InvalidPseudoError as exc:
+        console.print(f"[bold red]✗ Pseudo invalide[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_INVALID_PSEUDO) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:
+        console.print(f"[bold red]✗ Échec inattendu[/bold red] — {exc}")
+        raise typer.Exit(code=EXIT_GENERIC_ERROR) from exc
+
+    _print_free_result(result, json_output=json_output)
+    if not quiet and not json_output:
+        console.print("[bold green]✓ Exercice généré[/bold green]")
     raise typer.Exit(code=EXIT_OK)
 
 

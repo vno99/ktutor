@@ -902,3 +902,316 @@ class TestSubmitQcm:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
         assert "submit-qcm" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# generate-exercise command tests (s06 — probleme, redaction)
+# ---------------------------------------------------------------------------
+
+
+class _StubFreeGenerator:
+    """Acts as ``FreeGenerator`` for the CLI without touching real services."""
+
+    def __init__(self, *, behavior: str = "ok_probleme") -> None:
+        self.behavior = behavior
+        # (pseudo, subject, type, document_id, topic, difficulty)
+        self.calls: list[tuple[str, str, str, str, str, str | None]] = []
+
+    def generate(
+        self,
+        pseudo: str,
+        subject: str,
+        type: str,
+        document_id: str,
+        topic: str,
+        difficulty: str | None = None,
+    ):
+        from app.services.exercises.free_generator import (
+            FreeGenerationError,
+            FreeGenerationResult,
+            ProblemeStatement,
+            RedactionStatement,
+        )
+
+        self.calls.append((pseudo, subject, type, document_id, topic, difficulty))
+        if self.behavior == "ok_probleme":
+            return FreeGenerationResult(
+                exercise_id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
+                exercise=ProblemeStatement(
+                    type="probleme",
+                    statement=(
+                        "Un jardinier plante 24 fleurs en 3 rangées égales. "
+                        "Combien de fleurs par rangée ?"
+                    ),
+                    expected_answer=(
+                        "Étape 1 : identifier la donnée (24 fleurs, 3 rangées).\n"
+                        "Étape 2 : effectuer la division 24 / 3.\n"
+                        "Étape 3 : conclure. Réponse : 8 fleurs par rangée."
+                    ),
+                    grading_criteria=[
+                        "L'élève identifie la division",
+                        "L'élève effectue le calcul",
+                        "L'élève énonce la réponse",
+                    ],
+                ),
+                raw="{}",
+            )
+        if self.behavior == "ok_redaction":
+            return FreeGenerationResult(
+                exercise_id=uuid.UUID("66666666-6666-6666-6666-666666666666"),
+                exercise=RedactionStatement(
+                    type="redaction",
+                    statement=(
+                        "Rédige un texte argumentatif de 200 à 300 mots sur le thème "
+                        "de l'amitié."
+                    ),
+                    expected_answer=(
+                        "Plan détaillé : introduction (présentation du sujet, thèse), "
+                        "développement (deux arguments principaux avec exemples), "
+                        "conclusion (bilan et ouverture). Le corrigé type attend un "
+                        "texte structuré, cohérent et bien orthographié, illustrant "
+                        "chaque argument par un exemple concret tiré de la vie quotidienne."
+                    ),
+                    grading_criteria=[
+                        "L'élève respecte la fourchette 200-300 mots",
+                        "L'élève utilise un registre argumentatif",
+                    ],
+                    min_words=200,
+                    max_words=300,
+                    target_register="argumentatif",
+                ),
+                raw="{}",
+            )
+        if self.behavior == "document_not_found":
+            raise FreeGenerationError(
+                "document_not_found",
+                "Document 00000000-0000-0000-0000-000000000000 introuvable pour 'ali'.",
+            )
+        if self.behavior == "no_chunks":
+            raise FreeGenerationError("no_chunks", "Aucun extrait indexé.")
+        if self.behavior == "malformed_output":
+            raise FreeGenerationError("malformed_output", "Le LLM n'a pas renvoyé un JSON valide.")
+        if self.behavior == "invalid_difficulty":
+            raise FreeGenerationError("invalid_difficulty", "Difficulté 'expert' inconnue.")
+        if self.behavior == "invalid_type":
+            raise FreeGenerationError("invalid_type", "Type 'qcm' non supporté.")
+        raise RuntimeError(f"unknown behavior: {self.behavior}")
+
+
+@pytest.fixture()
+def stubbed_free_service(monkeypatch: pytest.MonkeyPatch):
+    """Patch ``_build_free_service`` so the CLI uses our free-style stub."""
+    holder: dict[str, _StubFreeGenerator] = {}
+
+    def _factory(behavior: str = "ok_probleme"):
+        stub = _StubFreeGenerator(behavior=behavior)
+        holder["svc"] = stub
+        monkeypatch.setattr("app.cli._build_free_service", lambda: stub)
+        return stub
+
+    return _factory, holder
+
+
+class TestGenerateExercise:
+    def test_generate_exercise_probleme_returns_statement_expected_answer_grading_criteria(
+        self, stubbed_free_service
+    ) -> None:
+        factory, holder = stubbed_free_service
+        factory("ok_probleme")
+        result = runner.invoke(
+            app,
+            [
+                "generate-exercise",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--type",
+                "probleme",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--topic",
+                "fractions",
+                "--difficulty",
+                "facile",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+        # Service was called with the right args (CLI defaults difficulty to
+        # the configured value, here we passed it explicitly).
+        assert holder["svc"].calls == [
+            ("ali", "maths", "probleme", "11111111-1111-1111-1111-111111111111", "fractions", "facile")
+        ]
+
+    def test_generate_exercise_redaction_returns_statement_expected_answer_grading_criteria(
+        self, stubbed_free_service
+    ) -> None:
+        factory, holder = stubbed_free_service
+        factory("ok_redaction")
+        result = runner.invoke(
+            app,
+            [
+                "generate-exercise",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "francais",
+                "--type",
+                "redaction",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--topic",
+                "amitié",
+            ],
+        )
+        assert result.exit_code == EXIT_OK, result.stdout
+        # Default difficulty (moyen) is filled in by the CLI.
+        assert holder["svc"].calls == [
+            ("ali", "francais", "redaction", "11111111-1111-1111-1111-111111111111", "amitié", "moyen")
+        ]
+
+    def test_generate_exercise_json_output_is_valid_for_both_types(
+        self, stubbed_free_service
+    ) -> None:
+        factory, _ = stubbed_free_service
+        factory("ok_probleme")
+        result = runner.invoke(
+            app,
+            [
+                "generate-exercise",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--type",
+                "probleme",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--topic",
+                "fractions",
+                "--json",
+            ],
+        )
+        assert result.exit_code == EXIT_OK
+        text = result.stdout
+        start = text.find("{")
+        assert start != -1, text
+        depth = 0
+        end = -1
+        for i in range(start, len(text)):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        assert end != -1, text
+        payload = json.loads(text[start:end])
+        assert payload["exercise_id"] == "55555555-5555-5555-5555-555555555555"
+        ex = payload["exercise"]
+        assert ex["type"] == "probleme"
+        assert "statement" in ex and len(ex["statement"]) > 0
+        assert "expected_answer" in ex and len(ex["expected_answer"]) > 0
+        assert isinstance(ex["grading_criteria"], list) and len(ex["grading_criteria"]) >= 1
+
+    def test_generate_exercise_document_not_found_returns_5(self, stubbed_free_service) -> None:
+        factory, _ = stubbed_free_service
+        factory("document_not_found")
+        result = runner.invoke(
+            app,
+            [
+                "generate-exercise",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--type",
+                "probleme",
+                "--document-id",
+                "00000000-0000-0000-0000-000000000000",
+                "--topic",
+                "x",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_generate_exercise_malformed_output_returns_4(self, stubbed_free_service) -> None:
+        factory, _ = stubbed_free_service
+        factory("malformed_output")
+        result = runner.invoke(
+            app,
+            [
+                "generate-exercise",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--type",
+                "probleme",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--topic",
+                "x",
+            ],
+        )
+        assert result.exit_code == 4
+
+    def test_generate_exercise_invalid_difficulty_returns_5(self, stubbed_free_service) -> None:
+        factory, _ = stubbed_free_service
+        factory("invalid_difficulty")
+        result = runner.invoke(
+            app,
+            [
+                "generate-exercise",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--type",
+                "probleme",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--topic",
+                "x",
+                "--difficulty",
+                "expert",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_generate_exercise_invalid_type_returns_5(self, stubbed_free_service) -> None:
+        factory, _ = stubbed_free_service
+        factory("invalid_type")
+        result = runner.invoke(
+            app,
+            [
+                "generate-exercise",
+                "--pseudo",
+                "ali",
+                "--subject",
+                "maths",
+                "--type",
+                "qcm",
+                "--document-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--topic",
+                "x",
+            ],
+        )
+        assert result.exit_code == 5
+
+    def test_generate_exercise_help_works(self) -> None:
+        result = runner.invoke(app, ["generate-exercise", "--help"])
+        assert result.exit_code == 0
+        text = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--pseudo" in text
+        assert "--type" in text
+        assert "--document-id" in text
+        assert "--topic" in text
+
+    def test_help_lists_generate_exercise_command(self) -> None:
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "generate-exercise" in result.stdout

@@ -69,6 +69,18 @@ class Settings(BaseSettings):
     qcm_max_retries: int = 1
     qcm_temperature: float = 0.0
 
+    # Free-style exercise generation (s06 — probleme / redaction).
+    # ``free_difficulty_options`` is a comma-separated string parsed by the
+    # CLI at wire-up time (convention s03 ``qcm_max_questions``).
+    free_default_difficulty: str = "moyen"
+    free_difficulty_options: str = "facile,moyen,difficile"
+    free_max_retries: int = 1
+    free_temperature: float = 0.0
+    # Safety net below the String(8192) column ceiling — a 192-char margin
+    # so the generator raises ``statement_too_long`` before the DB rejects
+    # the row.
+    free_max_statement_chars: int = 8000
+
 
 _settings: Settings | None = None
 

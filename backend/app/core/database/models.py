@@ -38,6 +38,11 @@ class ExerciseType(str, enum.Enum):
     """
 
     QCM = "qcm"
+    # s06 — free-style exercises (maths probleme, francais redaction).
+    # Note: s06b-flashcards adds FLASHCARDS to this same enum. The two
+    # additions don't collide; the conflict on merge is a trivial union.
+    PROBLEME = "probleme"
+    REDACTION = "redaction"
 
 
 class Document(Base):
