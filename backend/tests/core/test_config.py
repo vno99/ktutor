@@ -74,6 +74,31 @@ class TestQcmSettings:
         assert Settings().qcm_max_questions == 30
 
 
+class TestFreeSettings:
+    """Free-style exercise generation settings — s06 (probleme, redaction)."""
+
+    def test_default_free_default_difficulty_is_moyen(self) -> None:
+        assert Settings().free_default_difficulty == "moyen"
+
+    def test_default_free_difficulty_options_is_facile_moyen_difficile(self) -> None:
+        assert Settings().free_difficulty_options == "facile,moyen,difficile"
+
+    def test_default_free_max_retries_is_1(self) -> None:
+        assert Settings().free_max_retries == 1
+
+    def test_default_free_temperature_is_zero(self) -> None:
+        assert Settings().free_temperature == 0.0
+
+    def test_default_free_max_statement_chars_is_8000(self) -> None:
+        # Below the String(8192) column ceiling — a safety net so the
+        # generator raises ``statement_too_long`` before the DB rejects.
+        assert Settings().free_max_statement_chars == 8000
+
+    def test_free_default_difficulty_override_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("FREE_DEFAULT_DIFFICULTY", "difficile")
+        assert Settings().free_default_difficulty == "difficile"
+
+
 class TestChatSettings:
     """Chat LLM settings — s02."""
 

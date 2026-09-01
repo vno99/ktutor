@@ -21,7 +21,6 @@ test doubles possible).
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from collections.abc import Callable
 from typing import Any, Protocol
@@ -35,6 +34,7 @@ from app.core.database.models import (
     ExerciseType,
     Subject,
 )
+from app.services.exercises._parsing import extract_json_block
 from app.services.llm.client import LlmClient
 
 # ---------------------------------------------------------------------------
@@ -85,35 +85,15 @@ class QcmGenerationError(Exception):
 # Helpers
 # ---------------------------------------------------------------------------
 
-_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
-
 
 def _extract_json_block(text: str) -> str | None:
-    """Best-effort JSON object extraction.
+    """Thin wrapper around the shared :func:`extract_json_block`.
 
-    LLM outputs often wrap JSON in markdown fences (``\\`\\`\\`json``) or
-    add a short preamble. We try (a) stripping fences and parsing, (b) a
-    regex search for the first ``{...}`` block and parsing that. Returns
-    the raw JSON string on success, ``None`` on failure.
+    Kept for backwards compatibility with downstream code that imports the
+    private name. New code should import :func:`extract_json_block` from
+    :mod:`app.services.exercises._parsing` directly.
     """
-    candidate = text.strip()
-    if candidate.startswith("```"):
-        candidate = re.sub(r"^```(?:json)?\s*", "", candidate)
-        candidate = re.sub(r"\s*```$", "", candidate)
-    try:
-        json.loads(candidate)
-        return candidate
-    except (ValueError, TypeError):
-        pass
-    match = _JSON_OBJECT_RE.search(text)
-    if match is None:
-        return None
-    block = match.group(0)
-    try:
-        json.loads(block)
-    except (ValueError, TypeError):
-        return None
-    return block
+    return extract_json_block(text)
 
 
 # ---------------------------------------------------------------------------
