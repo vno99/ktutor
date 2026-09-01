@@ -145,7 +145,7 @@ Ces deux validations sont dans le service (pas le schéma Pydantic), conforméme
 
 ### Étape 6 — Commit unique
 
-12. [ ] **Un seul commit sur `feature/s06b-generer-flashcards`** (cf. convention s05, s06) : `feat(exercises): add flashcard deck generator (s06b)`. Le commit inclut :
+12. [x] **Un seul commit sur `feature/s06b-generer-flashcards`** (cf. convention s05, s06) : `feat(exercises): add flashcard deck generator (s06b)`. Le commit inclut :
    - Tous les changements de code (étapes 1-5).
    - Le commit isolé de l'étape 1.1 (extension `ExerciseType` + colonne `cards`) peut soit (a) fusionner dans ce commit unique, soit (b) être isolé. **Recommandation** : (a) un commit unique, plus simple à reviewer. La collision avec s06 a déjà été résolue par le squash-merge de s06, donc l'enum contient déjà 3 valeurs et s06b ajoute la 4e (union triviale).
 
