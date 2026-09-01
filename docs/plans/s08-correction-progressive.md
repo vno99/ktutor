@@ -165,7 +165,7 @@ Le bite test `test_flashcards_exercise_raises_invalid_exercise` mord si la liste
 
 ### Étape 6 — Commit unique
 
-13. [ ] **Un seul commit sur `feature/s08-correction-progressive`** (cf. convention s05, s06, s06b, s07) : `feat(correction): add progressive correction state machine (s08)`. Le commit inclut :
+13. [x] **Un seul commit sur `feature/s08-correction-progressive`** (cf. convention s05, s06, s06b, s07) : `feat(correction): add progressive correction state machine (s08)`. Le commit inclut :
    - Tous les changements de code (étapes 1-5).
    - Note explicite dans le commit message : « Cette PR implémente la state machine 4 états de la correction progressive (partial / partial_attempt_2 / full / full_after_attempts). Le `partial_attempt_3` listé dans `CLAUDE.md:307` n'est PAS implémenté (3 max attempts rend cet état inutile) — la story prime (AC5). Le service s08 s'interface sur s04 (QCM) et s07 (texte) via un callable `grade_callback`, sans modifier ni l'un ni l'autre. `MAX_CORRECTION_ATTEMPTS=3` est ajouté à `Settings`. »
 
