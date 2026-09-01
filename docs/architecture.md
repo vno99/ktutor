@@ -288,6 +288,56 @@ notifications (
 )
 ```
 
+## API Endpoints
+
+### Documents — `backend/app/api/documents/` (s10)
+
+| Endpoint | Method | Body | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `/api/documents/upload` | POST | `multipart/form-data` — `pseudo: str`, `subject: Literal["maths","francais"]`, `file: UploadFile` | `201 {document_id, status, chunks_count, ocr_confidence?}` | `413` (taille), `415` (extension), `422` (pseudo / OCR), `500` (S3/DB) |
+
+**Request fields** :
+
+* `pseudo` — auth-stub identity (regex `^[a-zA-Z0-9_]{3,32}$` enforced
+  in the service). Migration JWT en s15.
+* `subject` — `Literal["maths", "francais"]` (Pydantic validation côté
+  router).
+* `file` — `UploadFile` (PDF, PNG, JPG, JPEG, TXT). Limite
+  `max_upload_size_mb` (défaut 20 MB), contrôlée à trois niveaux :
+  header `Content-Length` → post-read router → `UploadService.upload`.
+
+**Réponse succès** :
+
+```json
+{
+  "document_id": "uuid",
+  "status": "indexed" | "manual_review_needed" | "error",
+  "chunks_count": 0,
+  "ocr_confidence": 0.9
+}
+```
+
+`MANUAL_REVIEW_NEEDED` est un succès HTTP 201 — le document est
+persisté en base avec `chunks_count=0` (OCR confidence trop basse,
+Piège 7). Le frontend décide de l'affichage.
+
+**Erreurs** :
+
+| Code | Status | Quand |
+| --- | --- | --- |
+| `invalid_pseudo` | 422 | `pseudo` ne matche pas la regex |
+| `invalid_file` | 413 | fichier > `max_upload_size_mb` (taille) |
+| `invalid_file` | 415 | extension non supportée |
+| `ocr_failure` | 422 | échec OCR (HTTP 5xx upstream) |
+| `storage_failure` | 500 | S3 ou DB injoignable |
+
+**Architecture** : le router (`app/api/documents/router.py`) appelle
+directement `UploadService.upload(file_path, pseudo, subject)` (AC4).
+Le service est la **même fonction** que le CLI invoque
+(`app/cli.py:333` — `python -m ktutor.cli upload`). Aucune logique
+métier dans le router. CORS hérité de s09 (`CORSMiddleware` dans
+`app/main.py`, configuré via `Settings.cors_allow_origins`).
+
 ## Integration points
 
 | Service | Usage | Local | Prod-ready ? |

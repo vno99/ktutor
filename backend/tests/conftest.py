@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,36 @@ def _reset_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     config.reset_settings()
     yield
     config.reset_settings()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_loguru_sink() -> Iterator[list[str]]:
+    """Replace the loguru sink with an in-memory buffer for one test.
+
+    The default loguru sink (configured by ``app.core.logging``) writes
+    to ``sys.stderr`` with the stream's native encoding, which on
+    Windows is cp1252. Pytest's ``capsys``/``capfd`` captures stderr
+    as bytes and decodes them as UTF-8; non-ASCII bytes written by the
+    production sink (e.g. French ``UploadError`` messages from
+    ``UploadService``, French ``chat_no_document_message``) are
+    undecodable in that mode and break teardown of subsequent tests.
+
+    Dropping the production sink and adding a per-test in-memory
+    buffer isolates the test from the capture stream and lets tests
+    assert on log output via the yielded list.
+    """
+    from loguru import logger
+
+    logger.remove()  # drop the production stderr sink
+    buffer: list[str] = []
+    handler_id = logger.add(
+        lambda message: buffer.append(str(message)),
+        level="DEBUG",
+    )
+    try:
+        yield buffer
+    finally:
+        logger.remove(handler_id)
 
 
 # ---------------------------------------------------------------------------
