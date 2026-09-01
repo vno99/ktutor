@@ -16,6 +16,7 @@ machine to the persistence layer, with three bite tests:
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -33,6 +34,29 @@ from app.core.database.models import (
     ExerciseType,
     Subject,
 )
+
+# ---------------------------------------------------------------------------
+# LLM stub (local copy — test_hints.py has the same pattern; the two
+# test files do not share a fixtures module to keep imports local).
+# ---------------------------------------------------------------------------
+
+
+class _ScriptedLlm:
+    """Drop-in replacement for ``LlmClient`` returning a scripted sequence."""
+
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = list(responses)
+        self.calls: list[list[Any]] = []
+
+    def invoke(self, messages: list[Any]) -> Any:
+        from langchain_core.messages import AIMessage
+
+        self.calls.append(list(messages))
+        if not self._responses:
+            raise AssertionError("LLM called more times than scripted responses.")
+        text = self._responses.pop(0)
+        return AIMessage(content=text)
+
 
 # ---------------------------------------------------------------------------
 # Truth table — pure state machine
@@ -172,17 +196,15 @@ class _RecordingGrader:
 class _RecordingHintGenerator:
     """A ``HintGenerator`` double that records every call and returns
     a scripted (hints, next_steps) tuple. Mirrors the contract
-    documented in the plan."""
+    documented in the plan: ``generate_hints(self, context: HintContext)``."""
 
     def __init__(self, *, hints: list[str] | None = None, next_steps: str = "stub next") -> None:
         self._hints = list(hints) if hints is not None else ["stub-hint"]
         self._next_steps = next_steps
-        self.calls: list[tuple[Any, int, str]] = []
+        self.calls: list[Any] = []
 
-    def generate_hints(
-        self, exercise: Any, attempt_number: int, feedback: str
-    ) -> tuple[list[str], str]:
-        self.calls.append((exercise, attempt_number, feedback))
+    def generate_hints(self, context: Any) -> tuple[list[str], str]:
+        self.calls.append(context)
         return list(self._hints), self._next_steps
 
 
@@ -309,7 +331,13 @@ class TestProgressiveCorrectionService:
         assert result.next_steps == "relis le cours"
         assert result.feedback == "2/3 correctes"
         assert grader.calls == [(exercise, "ali")]
-        assert hints.calls == [(exercise, 1, "2/3 correctes")]
+        # Hint generator was called once with a HintContext carrying the
+        # right attempt_number and feedback. The exact statement is
+        # built from the seeded exercise, so we only check the
+        # load-bearing fields here.
+        assert len(hints.calls) == 1
+        assert hints.calls[0].attempt_number == 1
+        assert hints.calls[0].feedback == "2/3 correctes"
         # The attempt must be persisted with the right correction_level.
         attempts = [obj for obj in tracking_session.wrapper.added if isinstance(obj, Attempt)]
         assert len(attempts) == 1
@@ -337,7 +365,9 @@ class TestProgressiveCorrectionService:
         assert result.correction_level == "partial_attempt_2"
         assert result.attempt_number == 2
         assert result.hints == ["erreur identifiee"]
-        assert hints.calls == [(exercise, 2, "1/3 correctes")]
+        assert len(hints.calls) == 1
+        assert hints.calls[0].attempt_number == 2
+        assert hints.calls[0].feedback == "1/3 correctes"
 
     def test_service_evaluates_third_attempt_failure_with_full_after_attempts(
         self, tracking_session: _SessionFactory
@@ -667,3 +697,63 @@ class TestInvalidExercise:
         assert hints.calls == []
         attempts = [obj for obj in tracking_session.wrapper.added if isinstance(obj, Attempt)]
         assert attempts == []
+
+
+# ---------------------------------------------------------------------------
+# Real HintGenerator integration (regression for the critical bug)
+# ---------------------------------------------------------------------------
+
+
+class TestRealHintGeneratorIntegration:
+    """The service must wire the real ``HintGenerator`` (not a stub).
+
+    This is the regression test for the s08 review critical finding:
+    the service used to call
+    ``self._hint_generator.generate_hints(exercise, attempt_number, feedback)``
+    with three positional args, but the real ``HintGenerator`` takes a
+    single ``HintContext``. The bug crashed every real
+    ``submit-qcm`` / ``submit-text`` that ended in ``partial`` or
+    ``partial_attempt_2``.
+
+    The test wires a real ``HintGenerator`` (with a stub ``_ScriptedLlm``
+    that returns well-formed JSON) into the real
+    ``ProgressiveCorrectionService`` and asserts that ``service.evaluate(...)``
+    returns non-empty hints for a ``partial`` result.
+    """
+
+    def test_real_hint_generator_returns_hints_for_partial(
+        self, tracking_session: _SessionFactory
+    ) -> None:
+        """The service must hand a ``HintContext`` to the real hint
+        generator. AC1 — non-empty hints on first-attempt failure."""
+        from app.services.correction.hints import HintGenerator
+        from app.services.correction.progressive import ProgressiveCorrectionService
+
+        exercise = _seed_exercise(tracking_session())
+        grader = _RecordingGrader(is_success=False, feedback="0/3 correctes")
+        # A real HintGenerator wired with a stub LLM that returns a
+        # well-formed JSON payload on its single call.
+        llm = _ScriptedLlm(
+            [
+                json.dumps(
+                    {
+                        "hints": ["relis la definition de la derivee"],
+                        "next_steps": "consulte la section 3.2 du cours",
+                    }
+                )
+            ]
+        )
+        hint_generator = HintGenerator(llm=llm, max_retries=0)  # type: ignore[arg-type]
+        service = ProgressiveCorrectionService(
+            session_factory=tracking_session,
+            hint_generator=hint_generator,  # type: ignore[arg-type]
+        )
+
+        result = service.evaluate("ali", str(exercise.id), grader)
+
+        assert result.correction_level == "partial"
+        # The real hint generator was called and produced real hints.
+        assert result.hints == ["relis la definition de la derivee"]
+        assert result.next_steps == "consulte la section 3.2 du cours"
+        # The LLM was called exactly once (no retry needed).
+        assert len(llm.calls) == 1

@@ -208,19 +208,27 @@ class ProgressiveCorrectionService:
         ownership check, the type whitelist or the closed gate fires.
         """
         # 1. UUID format — same generic error as ``exercise_not_found``
-        #    so we never leak the existence of a foreign row.
+        #    so we never leak the existence of a foreign row. We
+        #    deliberately do NOT include the raw input value in the
+        #    message — it would distinguish "malformed UUID" from
+        #    "unknown UUID" and let an attacker probe the format.
         try:
             exercise_uuid = uuid.UUID(exercise_id)
         except (ValueError, TypeError) as exc:
             raise ProgressiveCorrectionError(
-                "exercise_not_found", f"exercise_id invalide: {exercise_id}"
+                "exercise_not_found",
+                f"Exercise {pseudo!r} introuvable.",
             ) from exc
 
         # 2. Fetch the exercise (only if a session is wired). The
         #    multi-tenant guard is the FIRST runnable check — the
         #    grader and the hint generator MUST NOT see the foreign
-        #    exercise.
+        #    exercise. The same session is reused for the write at
+        #    step 8 to keep the read and the persist in one
+        #    transaction (avoids the fragility of a double
+        #    session_factory call).
         exercise: Any = None
+        session: _SessionLike | None = None
         if self._session_factory is not None:
             session = self._session_factory()
             exercise = session.get(Exercise, exercise_uuid)
@@ -288,10 +296,34 @@ class ProgressiveCorrectionService:
             # Hint generator is None-safe: a missing generator yields
             # an empty hints list (the ``full`` / ``full_after_attempts``
             # paths must NOT depend on a generator).
-            if self._hint_generator is not None:
-                hints, next_steps = self._hint_generator.generate_hints(
-                    exercise, attempt_number, feedback
+            if self._hint_generator is not None and exercise is not None:
+                # Build a HintContext from the exercise. The real
+                # ``HintGenerator.generate_hints`` takes a single
+                # ``HintContext`` argument — calling it with raw
+                # positional args raises ``TypeError`` (this was the
+                # s08 review critical finding).
+                from app.services.correction.hints import HintContext
+
+                raw_criteria = exercise.grading_criteria
+                if isinstance(raw_criteria, list):
+                    criteria_list: list[str] | None = [str(c) for c in raw_criteria]
+                elif isinstance(raw_criteria, dict):
+                    criteria_list = [str(v) for v in raw_criteria.values()]
+                else:
+                    criteria_list = None
+                raw_questions = exercise.questions
+                questions_list: list[dict[str, Any]] | None = (
+                    [dict(q) for q in raw_questions] if raw_questions else None
                 )
+                context = HintContext(
+                    statement=exercise.statement or "",
+                    exercise_type=exercise.type,
+                    attempt_number=attempt_number,
+                    feedback=feedback,
+                    grading_criteria=criteria_list,
+                    questions=questions_list,
+                )
+                hints, next_steps = self._hint_generator.generate_hints(context)
         else:
             # ``full`` or ``full_after_attempts`` — reveal the solution
             # from the persisted exercise. The QCM solution is
@@ -301,9 +333,10 @@ class ProgressiveCorrectionService:
 
         # 8. Persist the Attempt row. Same DB row as s04 / s07: the
         #    ``correction_level`` is new (s08) and the rest mirrors
-        #    what s04 already writes.
-        if self._session_factory is not None:
-            session = self._session_factory()
+        #    what s04 already writes. The same session opened at
+        #    step 2 is reused here so the read and the write are
+        #    bound to the same transaction.
+        if session is not None:
             try:
                 session.add(
                     Attempt(

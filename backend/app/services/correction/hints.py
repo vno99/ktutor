@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from loguru import logger
 
 from app.core.database.models import ExerciseType
 
@@ -155,8 +156,14 @@ class HintGenerator:
                 # always return a usable (hints, next_steps) tuple.
                 # The bare except is intentional: the LLM client
                 # surface is broad (timeouts, JSON errors, transport,
-                # OpenRouter upstream).
-                _ = exc
+                # OpenRouter upstream). We log the failure so the
+                # operator can see it; the fallback keeps the user
+                # flow responsive.
+                logger.warning(
+                    "hint_generator.llm_failure attempt={} error={!r}",
+                    i + 1,
+                    exc,
+                )
                 continue
             parsed = self._parse_hints(response_text)
             if parsed is not None:
