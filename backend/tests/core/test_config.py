@@ -140,8 +140,23 @@ class TestTextGraderSettings:
         assert Settings().text_grader_max_answer_chars == 4000
 
 
+class TestProgressiveCorrectionSettings:
+    """Progressive correction settings — s08."""
+
+    def test_default_max_correction_attempts_is_3(self) -> None:
+        # 3 max attempts before the exercise is closed (AC5). 4th
+        # submission raises ``ProgressiveCorrectionError("closed")``
+        # and the CLI maps it to exit 6.
+        assert Settings().max_correction_attempts == 3
+
+    def test_max_correction_attempts_override_via_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MAX_CORRECTION_ATTEMPTS", "5")
+        assert Settings().max_correction_attempts == 5
+
+
 class TestChatSettings:
-    """Chat LLM settings — s02."""
 
     def test_default_chat_top_k_is_4(self) -> None:
         assert Settings().chat_top_k == 4
