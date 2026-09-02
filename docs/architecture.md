@@ -1,7 +1,7 @@
 # Architecture — ktutor
 
 > Source de vérité technique : `CLAUDE.md`. Décisions structurantes : `docs/decisions/NNN-*.md`. Règles pipeline : `AGENTS.md`.
-> Date : 2026-08-28. Scope : framing (la story s01 commence l'implémentation, ce doc cadre).
+> Date : 2026-09-02. Scope : framing (architecture cible + état réel post-s11a). Le repo est désormais bootstrapé : backend FastAPI (s01-s10) + frontend Next.js 16 (s11a shippé `c3f1829`). Ce doc cadre les patterns et la cible — l'exhaustivité par story vit dans `docs/stories.md`.
 
 ## Stack
 
@@ -81,26 +81,50 @@ ktutor/
 │   └── alembic.ini
 ├── frontend/
 │   ├── app/
-│   │   ├── (auth)/                  #   /login, /register
-│   │   ├── (dashboard)/
+│   │   ├── (public)/                #   pages non-protégées (pré-JWT, s11a-s11c)
+│   │   │   └── [locale]/
+│   │   │       ├── layout.tsx       #   <Header> + bottom tab bar (mobile)
+│   │   │       ├── page.tsx         #   home (mini-hero + 2 CTAs)
+│   │   │       ├── chat/page.tsx    #   s11b (à venir)
+│   │   │       └── upload/page.tsx  #   s11c (à venir)
+│   │   ├── (auth)/                  #   /login, /register (s12)
+│   │   ├── (dashboard)/             #   pages protégées (s15+, JWT guard)
 │   │   │   ├── admin/
 │   │   │   ├── parent/
 │   │   │   └── eleve/               #   /chat, /upload, /exercises, /history, /dashboard
-│   │   ├── docs/                    #   /docs/* — user guide
-│   │   └── layout.tsx
-│   ├── components/                  # composants UI réutilisables
+│   │   ├── docs/                    #   /docs/* — user guide (s26)
+│   │   ├── globals.css              #   Tailwind v4 + design tokens (CSS variables)
+│   │   └── layout.tsx               #   root layout (data-theme, fonts, NextIntlClientProvider)
+│   ├── components/                  # composants UI réutilisables (s11a)
+│   │   ├── Button.tsx               #   primary | secondary | ghost variants
+│   │   ├── Card.tsx                 #   header | body | footer
+│   │   ├── FileUpload.tsx           #   drop zone (squelette s11a, complet s11c)
+│   │   ├── Header.tsx               #   logo + <LanguageSwitcher> + pseudo input + avatar
+│   │   ├── Input.tsx
+│   │   ├── Label.tsx
+│   │   ├── LanguageSwitcher.tsx     #   pill toggle FR | EN (cookie-backed)
+│   │   ├── Select.tsx               #   native <select> stylé
+│   │   └── StreamingMessage.tsx     #   aria-live="polite" + typing indicator
 │   ├── lib/
-│   │   ├── api.ts                   # axios + interceptor JWT
-│   │   ├── stores/                  # Zustand (auth, chat, notifications)
-│   │   └── i18n.ts
-│   ├── messages/                    # fr.json, en.json (next-intl)
-│   ├── types/                       # types TypeScript partagés
-│   ├── public/
-│   ├── middleware.ts                # next-intl middleware + auth guard
-│   ├── next.config.js
-│   ├── tailwind.config.js
+│   │   ├── api.ts                   # axios + interceptor (JWT en s15)
+│   │   ├── stores/                  # Zustand (authStore livré s11a, chatStore/uploadStore à venir)
+│   │   └── i18n.ts                  # next-intl config (routing, request)
+│   ├── i18n/                        # next-intl routing + request config
+│   │   ├── routing.ts
+│   │   └── request.ts
+│   ├── messages/                    # fr.json (default), en.json
+│   ├── types/                       # types TypeScript partagés (à venir)
+│   ├── public/                      # assets statiques
+│   ├── middleware.ts                # next-intl middleware (locale routing)
+│   ├── e2e/                         # Playwright tests (s11a livré : home, pseudo, responsive)
+│   ├── scripts/                     # check-i18n.sh, check-api-url.sh
+│   ├── lighthouserc.json            # config Lighthouse CI
+│   ├── next.config.ts
+│   ├── tailwind.config.ts
 │   ├── package.json
 │   ├── tsconfig.json
+│   ├── playwright.config.ts
+│   ├── .env.example
 │   └── Dockerfile
 ├── docker-compose.yml
 ├── .env.example
@@ -140,11 +164,12 @@ ktutor/
 
 ### Frontend (TypeScript)
 
-- **Structure Next.js** : App Router, routes groupées par `(auth)` et `(dashboard)`. Un dossier par route, avec `page.tsx`, `layout.tsx` (optionnel), et `loading.tsx` (optionnel).
+- **Structure Next.js** : App Router, routes groupées par `(public)` (pré-JWT, s11a-s11c) et `(dashboard)` (authentifié, s15+). L'ADR 006 prévoyait `(auth)/` et `(dashboard)/` ; la recherche s11 (Q3) a tranché pour `(public)/` car `(auth)/` en Next.js désigne sémantiquement les pages login/register (qui arrivent en s12), pas les pages non-protégées. La convention finale est : `(public)/[locale]/` = pages accessibles sans JWT (header sticky, language switcher, pseudo input), `(dashboard)/[locale]/` = pages protégées (gated par middleware en s15+). Un dossier par route, avec `page.tsx`, `layout.tsx` (optionnel), `loading.tsx` (optionnel).
 - **Composants** : PascalCase. Un composant par fichier. Props typées avec une interface.
 - **Hooks** : `useXxx`. Préférer les hooks Zustand (`useAuthStore`) aux contextes React pour le state global.
 - **Stores Zustand** : un store par domaine (`authStore`, `chatStore`, `notificationsStore`). Sérialisation manuelle pour `localStorage` si persistence nécessaire.
-- **API client** : `axios` avec interceptor pour ajouter le JWT (header `Authorization: Bearer <token>`) et gérer le refresh automatique sur 401.
+- **API client** : `axios` avec interceptor pour ajouter le JWT (header `Authorization: Bearer <token>`) et gérer le refresh automatique sur 401. Pré-JWT (s11a-s11c), le client ne fait pas d'auth ; le `pseudo` est envoyé dans le `body` des endpoints conformément aux contrats s09 (`/api/chat/stream`) et s10 (`/api/documents/upload`). Le passage JWT s15 remplace le `body.pseudo` par le header `Authorization` (refacto encapsulée dans les stores `chatStore` / `uploadStore` / `authStore`).
+- **Stores Zustand et hydratation** : un store par domaine (`authStore`, `chatStore`, `notificationsStore`, `uploadStore`). Hydratation **client-side only** via `hydrate()` appelé après mount (`useEffect` dans le root layout). Pas de SSR state Zustand (limitation Next.js 16 App Router). `authStore` lit le cookie `pseudo` (cf. ADR 011) ; `chatStore` / `uploadStore` parsent les réponses streaming ou multipart. Les stores ne sont **pas** des singletons globaux Next.js (ils sont par-requête), ce qui est compatible avec le RSC et le multi-tenant.
 - **i18n** : `useTranslations()` de `next-intl` dans tous les composants. Aucune string en dur. Catalogues `messages/fr.json` (par défaut) et `messages/en.json`.
 - **Styling** : Tailwind classes utilitaires. Pas de CSS modules. Pas de styled-components.
 - **Tests** : Playwright pour les e2e (parcours critiques : register, login, upload, chat, submit, dashboard). `@axe-core/playwright` pour l'audit a11y.

@@ -8,7 +8,7 @@ Pas de code en direct. Chaque fonctionnalité passe par le pipeline suivant, dan
 
 Le `CLAUDE.md` à la racine est la **source de vérité technique** du projet. Tout agent qui démarre une tâche doit d'abord **lire le `CLAUDE.md` complet** avant toute autre action. Le pipeline s'appuie sur ses conventions :
 
-- **Stack** : Next.js 16, FastAPI, LangGraph, ChromaDB, PostgreSQL, MinIO, Celery/Redis
+- **Stack** : Next.js 16, FastAPI, LangGraph, ChromaDB, PostgreSQL, SeaweedFS (S3-compatible, cf. ADR 009), Celery/Redis
 - **Architecture** : superviseur + agents spécialisés + RAG par matière
 - **Multi-tenancy** : isolation stricte par élève (puis par matière)
 - **Correction progressive** : QCM = tout ou rien, rédaction = appréciation LLM
@@ -107,21 +107,23 @@ Conventions imposées par `docs/architecture.md` et les ADR. Toute déviation do
 
 ### Frontend (TypeScript)
 
-- **Next.js 16 App Router** : routes groupées par `(auth)` et `(dashboard)`. Un dossier par route avec `page.tsx` (+ `layout.tsx` si sous-section).
+- **Next.js 16 App Router** : routes groupées par `(public)/[locale]/` (pré-JWT, s11a-s11c), `(auth)/` (login/register, s12), `(dashboard)/` (authentifié, s15+). Un dossier par route avec `page.tsx` (+ `layout.tsx` si sous-section). Cf. ADR 006 + recherche s11 Q3 (le story s11a a tranché `(public)` au lieu de `(auth-less)`).
 - **Composants** : PascalCase, un composant par fichier, props typées.
 - **Hooks** : `useXxx`. Zustand pour le state global (préféré à Context).
-- **Stores Zustand** : un store par domaine (`authStore`, `chatStore`, `notificationsStore`).
-- **API client** : `axios` + interceptor JWT (refresh automatique sur 401).
-- **i18n** : `useTranslations()` de `next-intl` partout. Aucune string en dur.
-- **Styling** : Tailwind. Pas de CSS modules. Pas de styled-components.
-- **Tests** : Playwright (e2e + a11y via `@axe-core/playwright`).
-- **Accessibilité** : `<label htmlFor>` systématique, `aria-live="polite"` sur les streams, focus visible, contraste AA.
+- **Stores Zustand** : un store par domaine (`authStore` livré s11a, `chatStore` livré s11b, `uploadStore` livré s11c, `notificationsStore` à venir). Hydratation **client-side only** via `hydrate()` après mount (cf. ADR 011). Pas de SSR state Zustand.
+- **API client** : `axios` via `apiClient` (`frontend/lib/api.ts`), `baseURL = NEXT_PUBLIC_API_URL`. Pré-JWT (s11a-s11c), le `pseudo` est envoyé dans le `body` (cf. contrats s09 et s10) ; en s15, l'interceptor JWT ajoute `Authorization: Bearer <token>` (refresh automatique sur 401) et le `pseudo` quitte le body pour le header.
+- **Identité transitoire** : `pseudo` en cookie `path=/; max-age=30d; SameSite=Lax` posé par `<Header>`, lu par `useAuthStore.hydrate()`. Regex client `^[a-zA-Z0-9_]{3,32}$` alignée sur le service backend. Cf. ADR 011.
+- **i18n** : `useTranslations()` de `next-intl` partout. Aucune string en dur (vérifié par `frontend/scripts/check-i18n.sh`).
+- **Styling** : Tailwind v4 + design tokens en CSS variables (cf. `docs/design-system.md`). Pas de CSS modules. Pas de styled-components.
+- **Tests** : Playwright (e2e + a11y via `@axe-core/playwright`). Configuration dans `frontend/playwright.config.ts`. Tests dans `frontend/e2e/*.spec.ts`.
+- **Accessibilité** : `<label htmlFor>` systématique, `aria-live="polite"` sur les streams (cf. `<StreamingMessage>`), `aria-disabled` + `tabindex="-1"` sur les boutons désactivés (cf. design-system l.228), focus visible (`:focus-visible` Tailwind), contraste AA.
+- **Composants UI** : les composants partagés vivent dans `frontend/components/` (`Button`, `Card`, `FileUpload`, `Header`, `Input`, `Label`, `LanguageSwitcher`, `Select`, `StreamingMessage`). Un composant par fichier. Props typées via interface exportée. Pas de logique métier dans un composant partagé.
 
 ### Multi-tenancy (transverse)
 
 - **PostgreSQL** : `student_pseudo` sur toutes les tables métier. Toutes les requêtes filtrent par ce champ, extrait du JWT (jamais du body/URL).
 - **ChromaDB** : convention `rag_<subject>_<pseudo>`. Factory `get_chroma_collection(subject, pseudo)` (cf. ADR 004).
-- **MinIO** : préfixe `students/<pseudo>/<document_id>`. `document_id` est un UUID.
+- **SeaweedFS (S3-compatible, remplace MinIO depuis s01b, cf. ADR 009)** : préfixe `students/<pseudo>/<document_id>`. `document_id` est un UUID. SDK Python `minio>=7.2` (l'API est compatible malgré le rename).
 - **JWT** : `sub` = pseudo, `role` = "eleve" | "parent" | "admin". Middleware FastAPI vérifie le `pseudo` du JWT vs URL/body.
 - **Tests d'isolation** : un test cross-tenant minimum par story API accédant à des données élève.
 
@@ -141,7 +143,7 @@ Conventions imposées par `docs/architecture.md` et les ADR. Toute déviation do
 - **Stub LLM pour les unit tests** : `FakeListLLM` de LangChain. Les tests d'intégration avec vrai LLM sont best-effort (non bloquants pour la PR).
 - **Tests d'isolation cross-tenant** : obligatoires pour toute story API accédant à des données élève (cf. AGENTS.md § Définition of Done).
 - **Tests a11y** : Playwright + `@axe-core/playwright` sur les pages principales (s11, s22).
-- **Lighthouse** : score a11y ≥ 90 sur chat, upload, dashboard, history (s11, s22).
+- **Lighthouse** : score a11y ≥ 90 sur les pages principales (config dans `frontend/lighthouserc.json`). Couvre `/`, `/chat`, `/upload` (s11, s22), `/dashboard/*` (s16, s22), `/history` (s19, s22).
 
 ### Git et PR
 
