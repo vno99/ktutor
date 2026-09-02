@@ -239,7 +239,7 @@ jobs:
         # — and that fails if pnpm is not yet on the PATH.
         run: |
           corepack enable
-          corepack prepare pnpm@11.25.0 --activate
+          corepack prepare pnpm@10.15.0 --activate
           pnpm --version
 
       - name: Setup Node
