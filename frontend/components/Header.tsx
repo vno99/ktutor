@@ -31,6 +31,7 @@ export function Header() {
   const inputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname() ?? '';
   const isChatActive = pathname.endsWith('/chat');
+  const isUploadActive = pathname.endsWith('/upload');
 
   useEffect(() => {
     if (!hydrated) hydrate();
@@ -89,9 +90,10 @@ export function Header() {
           </Link>
           <Link
             href="/upload"
-            className="hover:text-text-primary transition-colors"
-            aria-disabled="true"
-            tabIndex={-1}
+            className={`hover:text-text-primary transition-colors ${
+              isUploadActive ? 'text-text-primary font-medium' : ''
+            }`}
+            aria-current={isUploadActive ? 'page' : undefined}
           >
             {t('navUpload')}
           </Link>
