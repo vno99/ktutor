@@ -240,12 +240,14 @@ jobs:
 
       - name: Setup pnpm
         if: steps.detect.outputs.exists == 'true'
-        uses: pnpm/action-setup@v4
-        with:
-          # Pin the version that matches package.json's `packageManager`.
-          # Self-documenting: bump in lockstep with frontend/package.json.
-          version: 11.25.0
-          run_install: false
+        # Corepack ships with Node 20+ and resolves any pnpm version from
+        # the `packageManager` field in package.json (pnpm@11.25.0 here).
+        # Replaces pnpm/action-setup@v4, which couldn't fetch pnpm 11 on
+        # ubuntu-latest (runner had only npm + yarn preinstalled, and
+        # action-setup fell back to a path that didn't exist).
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
 
       - name: Install dependencies
         if: steps.detect.outputs.exists == 'true'
