@@ -1,0 +1,27 @@
+{
+  "common": {
+    "appName": "ktutor",
+    "language": "Language",
+    "french": "French",
+    "english": "English",
+    "switchTo": "Switch to {locale}",
+    "skipToContent": "Skip to main content"
+  },
+  "home": {
+    "title": "Welcome to ktutor",
+    "subtitle": "An AI assistant to help you review, upload your courses and chat with your agents.",
+    "ctaChat": "Start chatting",
+    "ctaUpload": "Upload a document"
+  },
+  "header": {
+    "logo": "ktutor",
+    "pseudoLabel": "Your pseudo",
+    "pseudoHelp": "Choose a pseudo (3 to 32 characters, letters, digits, underscore).",
+    "navChat": "Chat",
+    "navUpload": "Upload",
+    "avatarAlt": "{pseudo}'s avatar"
+  },
+  "chat": {},
+  "upload": {},
+  "errors": {}
+}

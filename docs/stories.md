@@ -407,43 +407,87 @@
 
 ---
 
-### Story s11-frontend-upload-chat — Utiliser l'app web pour uploader et chatter
+### Story s11a-frontend-bootstrap — Bootstrap de l'application frontend (split 1/3)
+
+> **Note** : s11 a été **splittée en 3 sous-stories** (s11a bootstrap, s11b chat, s11c upload) suite à la recherche `docs/research/s11-frontend-upload-chat.md` § 16 (score de complexité 5 vs 4 dans le story original, due au scaffold from zero + SSE + i18n + a11y + CI). Le split permet de merger la base technique (s11a) avant d'attaquer les pages (s11b/s11c). Cette PR s11a ne couvre QUE le scaffold + design system + i18n + CI. Les pages `/chat` et `/upload` arrivent en s11b et s11c.
 
 **As an** élève **I want** utiliser une interface web responsive (smartphone + tablette) **so that** je puisse uploader et chatter sans installer quoi que ce soit.
 
 ### Complexity
 
-**4** — Next.js 16 + SSE consumption + state management (Zustand) + responsive UI + i18n scaffold. Call out the risk below.
+**3** — Next.js 16 scaffold + design system + i18n + axe-core + Lighthouse CI + job CI frontend durci. Premier frontend, zéro base existante (scaffold from zero).
 
-### Acceptance criteria
+### Acceptance criteria (scope réduit à s11a)
 
-- [ ] A `/upload` page lets the user select a file, choose a subject, and submit. On success, shows a confirmation. On error, shows a clear error message.
-- [ ] A `/chat` page lets the user type a question, choose a subject, and see the agent's response streamed in real time.
-- [ ] Both pages are responsive: usable on a 360px-wide screen (smartphone) and on a 768px+ screen (tablet). No horizontal scroll.
-- [ ] The chat page reads the SSE stream and appends chunks as they arrive.
-- [ ] A footer or header allows switching the UI language between French (default) and English.
-- [ ] A test using a headless browser (Playwright) verifies the upload flow end-to-end against a stubbed backend.
-- [ ] A test verifies the chat page renders without JavaScript errors and the SSE stream connection is opened.
-- [ ] Lighthouse Accessibility score ≥ 90 on both pages.
+- [ ] `pnpm install && pnpm dev` démarre le serveur sur `http://localhost:3000` et sert une home page.
+- [ ] Le toggle FR/EN dans le header change la langue et persiste en cookie.
+- [ ] La home et le header sont utilisables à 360px (mobile) et 768px (tablette), sans scroll horizontal.
+- [ ] Les 8 composants cibles du design system (Button, Input, Label, Card, Select, FileUpload, StreamingMessage, LanguageSwitcher) sont implémentés en squelette (signature + a11y), même s'ils ne sont pas tous utilisés en s11a.
+- [ ] Le job `frontend` du CI GitHub Actions passe (lint, typecheck, build), et un test e2e Playwright smoke (la home rend) + axe-core (0 violation critique) sont verts.
+- [ ] Lighthouse Accessibility ≥ 90 sur la home (Lighthouse CI dans le job CI).
+- [ ] `pytest` passe toujours côté backend (aucune régression sur les 412 tests).
+- [ ] Un test `home.spec.ts` est créé, stubbé via `page.route` si besoin. Les e2e chat/upload sont **hors-scope** (gated par s11b/s11c).
+
+### ACs reportés à s11b/s11c
+
+- AC1 (page `/upload`), AC2 (page `/chat`), AC4 (SSE consumption), AC6 (e2e upload), AC7 (e2e chat avec SSE).
 
 ### Dependencies
 
-- s09 (chat API).
-- s10 (upload API).
+- s09 (chat API) mergé ✅.
+- s10 (upload API) mergé ✅.
 
 ### Agentic notes
 
-- **Files involved** : `frontend/app/(auth-less)/upload/page.tsx`, `frontend/app/(auth-less)/chat/page.tsx`, `frontend/lib/api.ts` (axios client), `frontend/lib/stores/chatStore.ts` (Zustand), `frontend/messages/fr.json`, `frontend/messages/en.json`, `frontend/middleware.ts` (next-intl).
-- **Risk (complexity 4)** : responsive UI, SSE consumption, and i18n are all in the same story — three concerns that can each blow up. Mitigation: each concern in its own commit within the story's branch, and ship a minimal "ugly but works" UI first, polish later in a follow-up story.
+- **Files involved** : `frontend/package.json`, `frontend/tsconfig.json`, `frontend/next.config.ts`, `frontend/tailwind.config.ts`, `frontend/postcss.config.mjs`, `frontend/.eslintrc.json`, `frontend/.prettierrc`, `frontend/.gitignore`, `frontend/app/globals.css`, `frontend/app/layout.tsx`, `frontend/app/(public)/[locale]/{layout,page}.tsx`, `frontend/middleware.ts`, `frontend/i18n/{routing,request}.ts`, `frontend/messages/{fr,en}.json`, `frontend/components/{Button,Input,Label,Card,Select,FileUpload,StreamingMessage,LanguageSwitcher,Header}.tsx`, `frontend/lib/{api.ts,stores/authStore.ts}`, `frontend/playwright.config.ts`, `frontend/e2e/{home,pseudo,responsive}.spec.ts`, `frontend/scripts/check-i18n.sh`, `frontend/lighthouserc.json`, `frontend/.env.example`, `frontend/.gitignore`. `.github/workflows/ci.yml` (job frontend durci).
+- **Risk (complexity 3 — re-scored from 5)** : le scaffold from zero est l'essentiel de la PR (~30 fichiers config + boilerplate). Mitigation : split en 3 stories. s11a ferme la base technique.
 - **Constraints** :
-  - Use `next-intl` from the start (no hardcoded strings).
-  - Use Tailwind for styling; no custom CSS unless strictly necessary.
-  - SSE consumption: use `fetch` with `ReadableStream` (the `EventSource` API does not support POST).
+  - `next@16`, `react@19`, `tailwindcss@4`, `next-intl@4`, `zustand@5`, `axios@1`. Versions pinnées (lockfile `pnpm-lock.yaml`).
+  - Pas de shadcn/ui en s11a (composants maison). Décision reportée à s22 si le besoin s'en fait sentir.
+  - Routes `app/(public)/[locale]/` (next-intl routing).
+  - `prefers-reduced-motion` respecté dès s11a.
+  - Tous les tokens couleurs via `var(--color-*)` (aucun hex en dur dans les composants, sauf `app/globals.css`).
+  - Lighthouse CI dans le job CI (a11y ≥ 90 sur `/fr/`).
 - **Traps** :
-  - SSE on Next.js: the dev server buffers responses by default. Use a reverse proxy or a Node runtime for the chat route.
-  - The chat page must not break if the SSE connection drops — show a "connection lost, retry?" UI.
-  - The i18n middleware must be registered in `next.config.js` correctly, or the locale switcher is a no-op.
-  - File upload from a smartphone camera requires `accept="image/*" capture="environment"` — without `capture`, the user gets a file picker, not the camera.
+  - Le dev server Next.js bufferise le SSE par défaut (Piège #3 recherche). En s11a, pas de SSE, mais poser les bases pour que s11b puisse appeler `:8000` directement.
+  - `reactStrictMode: true` double-invoke les `useEffect` en dev. Pas un problème en s11a, mais le poser dans `next.config.ts` dès maintenant.
+  - `package.json` doit être `type: "module"` (ESM) pour Next.js 16.
+  - `pnpm-lock.yaml` doit être commité (lockfile).
+  - Le job CI frontend (`.github/workflows/ci.yml:207-271`) doit être modifié pour pnpm : `cache: pnpm` + `cache-dependency-path: frontend/pnpm-lock.yaml` + `pnpm install --frozen-lockfile`. Suppression des `continue-on-error: true` pour lint/typecheck.
+  - Lighthouse CI doit être configuré pour échouer si a11y < 90 (`categories:accessibility` avec `minScore: 0.9`).
+
+### Story s11b-frontend-chat — Page /chat avec streaming SSE (split 2/3, gated by s11a)
+
+> Dépend de s11a. Sera planifiée et implémentée sur la branche `feature/s11b-frontend-chat` après le merge de s11a.
+
+**As an** élève **I want** chatter avec l'agent depuis l'interface web **so that** je voie la réponse s'afficher mot par mot.
+
+### Complexity
+
+**3** — Page `/chat` + SSE consumer via `fetch` + `ReadableStream` + `chatStore` Zustand.
+
+### Acceptance criteria (résumé)
+
+- [ ] Page `/chat` : question + matière + réponse streamée en temps réel.
+- [ ] La page lit le flux SSE et ajoute les chunks à mesure.
+- [ ] Les 5 tests e2e chat passent (Playwright + `page.route` stub SSE).
+- [ ] axe-core : 0 violation critique sur `/fr/chat`.
+
+### Story s11c-frontend-upload — Page /upload avec drag & drop (split 3/3, gated by s11a)
+
+> Dépend de s11a. Sera planifiée et implémentée sur la branche `feature/s11c-frontend-upload` après le merge de s11a.
+
+**As an** élève **I want** uploader un document depuis l'interface web **so that** il soit indexé dans mon RAG.
+
+### Complexity
+
+**2** — Page `/upload` + `<FileUpload>` complet (drag & drop + caméra mobile) + axios upload.
+
+### Acceptance criteria (résumé)
+
+- [ ] Page `/upload` : sélection de fichier, choix de matière, soumission. Succès → confirmation. Erreur → message clair.
+- [ ] Les 3 tests e2e upload passent (succès, 413, 415).
+- [ ] axe-core : 0 violation critique sur `/fr/upload`.
 
 ---
 

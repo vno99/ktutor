@@ -45,12 +45,15 @@ jobs:
           context: backend/tests/fixtures/seaweedfs
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/ktutor/seaweedfs-ci:4.44
-          # Use GHA cache for reads (skip rebuild if image unchanged),
-          # but skip cache-to: the docker driver on GH Actions runners
-          # does NOT support cache export. Builds will be slightly slower
-          # (full rebuild every time) until docker/buildx with a different
-          # driver is configured.
-          cache-from: type=gha
+          # No cache-from. We previously had `cache-from: type=gha` here,
+          # but without a matching `cache-to` (the docker driver on
+          # ubuntu-latest runners does NOT support cache export) the cache
+          # was never written, only read — so any time GHCR garbage-collected
+          # a referenced blob, the build failed with
+          # `ERROR: failed to build: unknown blob` during push. Building
+          # from scratch is the only safe option until docker/buildx with a
+          # different driver is configured on the runner.
+          pull: false
 
   # ─────────────────────────────────────────────────────────────
   # Backend: Python 3.12 + pytest with service containers
@@ -203,10 +206,10 @@ jobs:
           if-no-files-found: ignore
 
   # ─────────────────────────────────────────────────────────────
-  # Frontend: Node 20 + lint + build (only if frontend/ exists)
+  # Frontend: Node 20 + pnpm + lint + typecheck + build + e2e + a11y
   # ─────────────────────────────────────────────────────────────
   frontend:
-    name: Frontend (lint + build)
+    name: Frontend (lint + typecheck + build + e2e + a11y)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -230,37 +233,83 @@ jobs:
         run: |
           echo "::notice::frontend/package.json not found — skipping frontend job."
 
+      - name: Setup pnpm
+        if: steps.detect.outputs.exists == 'true'
+        # Corepack ships with Node 20+ and resolves any pnpm version from
+        # the `packageManager` field in package.json (pnpm@11.25.0 here).
+        # MUST run BEFORE `Setup Node` because actions/setup-node@v5 with
+        # `cache: pnpm` invokes `pnpm store path` to compute the cache key
+        # — and that fails if pnpm is not yet on the PATH.
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+          pnpm --version
+
       - name: Setup Node
         if: steps.detect.outputs.exists == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install dependencies
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
-        run: npm ci
+        # --frozen-lockfile enforces the committed pnpm-lock.yaml
+        # (no version drift vs. main).
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
-        run: npm run lint
-        continue-on-error: true   # lint introduced in s11
+        # No more `continue-on-error` — s11a hardens the gate.
+        run: pnpm run lint
 
       - name: Typecheck
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
-        run: npm run typecheck
-        continue-on-error: true   # strict TypeScript comes in s11
+        # No more `continue-on-error` — s11a hardens the gate.
+        run: pnpm run typecheck
+
+      - name: Check i18n (no hardcoded UI strings)
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        run: bash scripts/check-i18n.sh
 
       - name: Build
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
-        run: npm run build
+        run: pnpm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
+
+      - name: Install Playwright browsers
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        # --with-deps installs the OS-level libs (libnss3, libatk-bridge2.0,
+        # libxshmfence, ...) Chromium needs on Ubuntu.
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run e2e tests
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        # Playwright's webServer (configured in playwright.config.ts) starts
+        # `next start` against the production build from the previous step,
+        # waits for /fr/ to respond, runs the suite, then tears the server
+        # down. CI=1 forces Playwright to always spawn the server itself
+        # (no reuseExistingServer) so the job is self-contained.
+        run: pnpm run test:e2e
+        env:
+          CI: 1
+
+      - name: Run Lighthouse CI
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        # Lighthouse CI starts its own `next start` against the build
+        # artifact, audits /fr/ for accessibility, and asserts the
+        # threshold declared in lighthouserc.json (>= 0.9).
+        run: pnpm exec lhci autorun --config=./lighthouserc.json
 
       - name: Upload build artifact
         if: always()
@@ -268,6 +317,22 @@ jobs:
         with:
           name: frontend-build
           path: frontend/.next
+          if-no-files-found: ignore
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lighthouseci
+          path: frontend/.lighthouseci
           if-no-files-found: ignore
 
   # ─────────────────────────────────────────────────────────────
