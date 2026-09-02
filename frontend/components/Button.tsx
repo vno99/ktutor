@@ -39,6 +39,7 @@ const variantClasses: Record<ButtonVariant, string> = {
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  leftIcon?: ReactNode;
   children: ReactNode;
 }
 
@@ -49,6 +50,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       size = 'md',
       type = 'button',
       className = '',
+      leftIcon,
       children,
       ...rest
     },
@@ -58,6 +60,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       `${baseClasses} ${sizeClasses[size]} ${variantClasses[variant]} ${className}`.trim();
     return (
       <button ref={ref} type={type} className={classes} {...rest}>
+        {leftIcon ? <span className="mr-2 inline-flex shrink-0">{leftIcon}</span> : null}
         {children}
       </button>
     );

@@ -6,7 +6,8 @@
       "startServerReadyTimeout": 60000,
       "url": [
         "http://localhost:3000/fr/",
-        "http://localhost:3000/fr/chat"
+        "http://localhost:3000/fr/chat",
+        "http://localhost:3000/fr/upload"
       ],
       "numberOfRuns": 1
     },
