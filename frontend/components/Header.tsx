@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
+import { usePathname } from 'next/navigation';
 import { useAuthStore, isValidPseudo } from '@/lib/stores/authStore';
 import { Label } from './Label';
 import { Input } from './Input';
@@ -28,6 +29,8 @@ export function Header() {
 
   const [invalid, setInvalid] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pathname = usePathname() ?? '';
+  const isChatActive = pathname.endsWith('/chat');
 
   useEffect(() => {
     if (!hydrated) hydrate();
@@ -77,8 +80,10 @@ export function Header() {
         >
           <Link
             href="/chat"
-            className="hover:text-text-primary transition-colors"
-            aria-disabled="true"
+            className={`hover:text-text-primary transition-colors ${
+              isChatActive ? 'text-text-primary font-medium' : ''
+            }`}
+            aria-current={isChatActive ? 'page' : undefined}
           >
             {t('navChat')}
           </Link>
@@ -86,6 +91,7 @@ export function Header() {
             href="/upload"
             className="hover:text-text-primary transition-colors"
             aria-disabled="true"
+            tabIndex={-1}
           >
             {t('navUpload')}
           </Link>

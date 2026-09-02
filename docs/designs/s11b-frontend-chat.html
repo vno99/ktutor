@@ -1,0 +1,554 @@
+<!doctype html>
+<!--
+  Mockup statique de la page /chat (story s11b-frontend-chat).
+
+  ⚠️ RÉFÉRENCE, PAS DU CODE À COPIER.
+  L'implémentation vit dans frontend/app/(public)/[locale]/chat/page.tsx
+  et utilise les vrais composants du design system (Header, Select,
+  Textarea — à créer —, Button, Card, StreamingMessage).
+
+  Ce fichier sert à valider visuellement le layout et les 5 états
+  critiques. Les couleurs/espacements/rayons sont hardcodés ici
+  UNIQUEMENT pour que le mockup rende dans un browser sans build
+  Tailwind. En production, ils viennent des variables CSS de
+  frontend/app/globals.css.
+-->
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Mockup /chat — s11b-frontend-chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        --color-primary: #3D5AFE;
+        --color-primary-strong: #1E2A8A;
+        --color-canvas: #FAFBFC;
+        --color-surface: #FFFFFF;
+        --color-surface-subtle: #F4F6FA;
+        --color-border: #E2E6EE;
+        --color-text-primary: #0D0F14;
+        --color-text-secondary: #5B6472;
+        --color-text-tertiary: #8B95A3;
+        --color-success: #16A34A;
+        --color-warning: #D97706;
+        --color-error: #DC2626;
+        --radius-sm: 6px;
+        --radius-md: 8px;
+        --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --color-primary: #7B8CFF;
+          --color-canvas: #0D0F14;
+          --color-surface: #161A22;
+          --color-surface-subtle: #1E232E;
+          --color-border: #2A2F3B;
+          --color-text-primary: #F4F6FA;
+          --color-text-secondary: #9AA3B2;
+          --color-text-tertiary: #6B7484;
+          --color-error: #EF4444;
+          --color-warning: #F59E0B;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .animate-pulse { animation: none !important; }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: var(--font-sans);
+        background: var(--color-canvas);
+        color: var(--color-text-primary);
+        line-height: 1.5;
+        font-size: 16px;
+      }
+      /* === Layout === */
+      .header {
+        position: sticky; top: 0; z-index: 10;
+        height: 56px;
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-border);
+        display: flex; align-items: center;
+        padding: 0 16px;
+        gap: 16px;
+      }
+      .header-logo { font-size: 18px; font-weight: 700; color: var(--color-primary-strong); }
+      .header-nav { display: none; gap: 16px; font-size: 14px; }
+      .header-nav a { color: var(--color-text-secondary); text-decoration: none; }
+      .header-nav a.active { color: var(--color-text-primary); font-weight: 500; }
+      .header-nav a[aria-disabled="true"] { color: var(--color-text-tertiary); cursor: not-allowed; }
+      .header-spacer { flex: 1; }
+      .header-pseudo { display: flex; align-items: center; gap: 8px; }
+      .header-pseudo input {
+        height: 44px; padding: 0 12px;
+        border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+        background: var(--color-surface); color: var(--color-text-primary);
+        font-size: 14px; width: 144px;
+      }
+      .header-pseudo input[aria-invalid="true"] { border-color: var(--color-error); }
+      .header-avatar {
+        height: 32px; width: 32px; border-radius: 9999px;
+        background: var(--color-primary); color: white;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 14px; font-weight: 600;
+      }
+      @media (min-width: 768px) {
+        .header { padding: 0 24px; }
+        .header-nav { display: flex; }
+      }
+      .page {
+        max-width: 768px; margin: 0 auto;
+        padding: 16px;
+        display: flex; flex-direction: column; gap: 16px;
+      }
+      @media (min-width: 768px) {
+        .page { padding: 24px; }
+      }
+      h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.011em; margin: 0; }
+      @media (min-width: 768px) { h1 { font-size: 30px; } }
+      /* === Form === */
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field label { font-size: 14px; font-weight: 500; color: var(--color-text-primary); }
+      .field .select, .field .textarea {
+        height: 44px; padding: 10px 12px;
+        border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+        background: var(--color-surface); color: var(--color-text-primary);
+        font-size: 16px; font-family: inherit;
+        transition: border-color 0.15s;
+      }
+      .field .textarea { height: auto; min-height: 96px; resize: vertical; }
+      .field .select:focus, .field .textarea:focus {
+        outline: none; border-color: var(--color-primary);
+        box-shadow: 0 0 0 3px rgba(61, 90, 254, 0.3);
+      }
+      .field .help { font-size: 12px; color: var(--color-text-tertiary); }
+      /* === Button === */
+      .btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        gap: 8px; height: 44px; padding: 0 20px;
+        border-radius: var(--radius-sm); border: 1px solid transparent;
+        font-size: 16px; font-weight: 500;
+        cursor: pointer; transition: background 0.15s;
+        font-family: inherit;
+      }
+      .btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+      .btn-primary { background: var(--color-primary); color: white; }
+      .btn-primary:hover:not(:disabled) { background: var(--color-primary-strong); }
+      .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-primary[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+      .btn-secondary { background: var(--color-surface); color: var(--color-text-primary); border-color: var(--color-border); }
+      .btn-secondary:hover { background: var(--color-surface-subtle); }
+      .btn-sm { height: 36px; padding: 0 16px; font-size: 14px; }
+      /* === Streaming zone === */
+      .stream {
+        min-height: 128px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        background: var(--color-surface);
+      }
+      .stream[aria-busy="true"] { /* busy state — pas de style distinct, c'est l'info screen reader */ }
+      .stream-content { font-size: 16px; color: var(--color-text-primary); }
+      .stream-empty { font-size: 14px; color: var(--color-text-secondary); }
+      .stream-empty ul { margin: 8px 0 0; padding-left: 20px; }
+      .stream-empty li { margin: 2px 0; }
+      .stream-empty button {
+        background: none; border: none; color: var(--color-primary);
+        cursor: pointer; font: inherit; padding: 0; text-align: left;
+      }
+      .stream-empty button:hover { text-decoration: underline; }
+      /* === Typing indicator === */
+      .typing { display: inline-flex; align-items: center; gap: 4px; }
+      .typing span {
+        display: inline-block; height: 8px; width: 8px;
+        border-radius: 9999px; background: var(--color-text-tertiary);
+        animation: pulse 1.4s infinite;
+      }
+      .typing span:nth-child(2) { animation-delay: 150ms; }
+      .typing span:nth-child(3) { animation-delay: 300ms; }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
+      }
+      /* === Sources === */
+      .sources { font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; }
+      .sources .filename { font-family: 'JetBrains Mono', monospace; }
+      /* === Cards (états) === */
+      .card {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        background: var(--color-surface);
+        box-shadow: 0 2px 4px 0 rgba(13, 15, 20, 0.06);
+      }
+      .card-error { background: rgba(220, 38, 38, 0.1); border-color: rgba(220, 38, 38, 0.3); }
+      .card-success { background: rgba(22, 163, 74, 0.1); border-color: rgba(22, 163, 74, 0.3); }
+      .card-warning { background: rgba(217, 119, 6, 0.1); border-color: rgba(217, 119, 6, 0.3); }
+      .card-row { display: flex; gap: 12px; align-items: flex-start; }
+      .card-icon { font-size: 24px; line-height: 1; flex-shrink: 0; }
+      .card-icon-error { color: var(--color-error); }
+      .card-icon-warning { color: var(--color-warning); }
+      .card-body { flex: 1; }
+      .card-title { font-weight: 500; margin: 0 0 4px; }
+      .card-code { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--color-text-tertiary); margin-top: 4px; }
+      .card-actions { margin-top: 12px; }
+      /* === Pseudo missing label === */
+      .pseudo-missing { font-size: 14px; color: var(--color-warning); }
+      /* === Mockup grid (5 états côte à côte sur grand écran) === */
+      .mockup-grid {
+        display: grid; gap: 24px;
+        grid-template-columns: 1fr;
+        padding: 24px;
+        max-width: 1400px; margin: 0 auto;
+      }
+      @media (min-width: 1024px) {
+        .mockup-grid { grid-template-columns: repeat(2, 1fr); }
+      }
+      .mockup-cell {
+        border: 2px dashed var(--color-border);
+        border-radius: var(--radius-md);
+        background: var(--color-canvas);
+        overflow: hidden;
+      }
+      .mockup-cell h2 {
+        font-size: 14px; font-weight: 500;
+        color: var(--color-text-secondary);
+        padding: 12px 16px;
+        margin: 0;
+        background: var(--color-surface-subtle);
+        border-bottom: 1px solid var(--color-border);
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .mockup-cell .page { padding: 16px; }
+      .intro {
+        max-width: 768px; margin: 0 auto; padding: 24px 16px;
+        font-size: 14px; color: var(--color-text-secondary);
+        background: var(--color-surface-subtle);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .intro code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--color-canvas); padding: 2px 6px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="intro">
+      <strong>Mockup statique — story s11b-frontend-chat</strong> — référence visuelle, low-fidelity.
+      5 états montrés côte à côte sur grand écran, empilés sur mobile. L'implémentation réelle utilise les composants
+      du design system (<code>&lt;Header&gt;</code>, <code>&lt;Select&gt;</code>, <code>&lt;Textarea&gt;</code> à créer, <code>&lt;Button&gt;</code>, <code>&lt;Card&gt;</code>, <code>&lt;StreamingMessage&gt;</code>).
+      Aucun token n'est inventé ici ; les couleurs correspondent à <code>docs/design-system.md</code>.
+    </div>
+
+    <div class="mockup-grid">
+
+      <!-- ============================================================ -->
+      <!-- ÉTAT 1 — Empty (initial, avant la 1ère question)              -->
+      <!-- ============================================================ -->
+      <div class="mockup-cell">
+        <h2>1. Empty — état initial</h2>
+        <header class="header">
+          <div class="header-logo">ktutor</div>
+          <nav class="header-nav" aria-label="Primary">
+            <a href="/chat" class="active">Chat</a>
+            <a href="/upload" aria-disabled="true" tabindex="-1">Upload</a>
+          </nav>
+          <div class="header-spacer"></div>
+          <div class="header-pseudo">
+            <input type="text" placeholder="Ton pseudo" aria-label="Ton pseudo" value="ali_baba" />
+            <span class="header-avatar" aria-label="Avatar de ali_baba">A</span>
+          </div>
+        </header>
+        <div class="page">
+          <h1>Chatter avec un agent</h1>
+
+          <div class="field">
+            <label for="subject-1">Matière</label>
+            <select id="subject-1" class="select">
+              <option value="">— Choisir une matière —</option>
+              <option value="maths">Mathématiques</option>
+              <option value="francais">Français</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="question-1">Ta question</label>
+            <textarea id="question-1" class="textarea" placeholder="Pose une question sur ton cours…" maxlength="2000"></textarea>
+            <div class="help">2000 caractères max</div>
+          </div>
+
+          <div>
+            <button class="btn btn-primary" aria-disabled="true" tabindex="-1" disabled>
+              <span aria-hidden="true">→</span> Envoyer
+            </button>
+          </div>
+
+          <div class="stream" role="log" aria-live="polite" aria-busy="false">
+            <div class="stream-empty">
+              <p>Pose une question à ton agent.</p>
+              <p>Exemples :</p>
+              <ul>
+                <li><button type="button">Qu'est-ce qu'une dérivée ?</button></li>
+                <li><button type="button">Règle du participe passé avec avoir ?</button></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- ÉTAT 2 — Streaming initial (typing indicator, avant 1er token) -->
+      <!-- ============================================================ -->
+      <div class="mockup-cell">
+        <h2>2. Streaming initial — typing indicator</h2>
+        <header class="header">
+          <div class="header-logo">ktutor</div>
+          <nav class="header-nav" aria-label="Primary">
+            <a href="/chat" class="active">Chat</a>
+            <a href="/upload" aria-disabled="true" tabindex="-1">Upload</a>
+          </nav>
+          <div class="header-spacer"></div>
+          <div class="header-pseudo">
+            <input type="text" placeholder="Ton pseudo" aria-label="Ton pseudo" value="ali_baba" />
+            <span class="header-avatar" aria-label="Avatar de ali_baba">A</span>
+          </div>
+        </header>
+        <div class="page">
+          <h1>Chatter avec un agent</h1>
+
+          <div class="field">
+            <label for="subject-2">Matière</label>
+            <select id="subject-2" class="select">
+              <option value="maths" selected>Mathématiques</option>
+              <option value="francais">Français</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="question-2">Ta question</label>
+            <textarea id="question-2" class="textarea" maxlength="2000">Explique-moi la dérivée de f(x)=x²+3x.</textarea>
+          </div>
+
+          <div>
+            <button class="btn btn-primary" aria-disabled="true" tabindex="-1" disabled>
+              <span aria-hidden="true">→</span> Envoyer
+            </button>
+            <span style="margin-left: 12px; font-size: 14px; color: var(--color-text-secondary);">
+              Réponse en cours…
+            </span>
+          </div>
+
+          <div class="stream" role="log" aria-live="polite" aria-busy="true">
+            <div class="typing" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- ÉTAT 3 — Streaming tokens accumulés                           -->
+      <!-- ============================================================ -->
+      <div class="mockup-cell">
+        <h2>3. Streaming — tokens accumulés</h2>
+        <header class="header">
+          <div class="header-logo">ktutor</div>
+          <nav class="header-nav" aria-label="Primary">
+            <a href="/chat" class="active">Chat</a>
+            <a href="/upload" aria-disabled="true" tabindex="-1">Upload</a>
+          </nav>
+          <div class="header-spacer"></div>
+          <div class="header-pseudo">
+            <input type="text" placeholder="Ton pseudo" aria-label="Ton pseudo" value="ali_baba" />
+            <span class="header-avatar" aria-label="Avatar de ali_baba">A</span>
+          </div>
+        </header>
+        <div class="page">
+          <h1>Chatter avec un agent</h1>
+
+          <div class="field">
+            <label for="subject-3">Matière</label>
+            <select id="subject-3" class="select">
+              <option value="maths" selected>Mathématiques</option>
+              <option value="francais">Français</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="question-3">Ta question</label>
+            <textarea id="question-3" class="textarea" maxlength="2000">Explique-moi la dérivée de f(x)=x²+3x.</textarea>
+          </div>
+
+          <div>
+            <button class="btn btn-primary" aria-disabled="true" tabindex="-1" disabled>
+              <span aria-hidden="true">→</span> Envoyer
+            </button>
+            <span style="margin-left: 12px; font-size: 14px; color: var(--color-text-secondary);">
+              Réponse en cours…
+            </span>
+          </div>
+
+          <div class="stream" role="log" aria-live="polite" aria-busy="true">
+            <p class="stream-content">La dérivée de f(x) = x² + 3x est f'(x) = 2x + 3. La règle appliquée est celle de la somme : (x²)' = 2x et (3x)' = 3. Donc f'(x) = 2x +</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- ÉTAT 4 — Success / Done avec sources                          -->
+      <!-- ============================================================ -->
+      <div class="mockup-cell">
+        <h2>4. Done — réponse terminée + sources</h2>
+        <header class="header">
+          <div class="header-logo">ktutor</div>
+          <nav class="header-nav" aria-label="Primary">
+            <a href="/chat" class="active">Chat</a>
+            <a href="/upload" aria-disabled="true" tabindex="-1">Upload</a>
+          </nav>
+          <div class="header-spacer"></div>
+          <div class="header-pseudo">
+            <input type="text" placeholder="Ton pseudo" aria-label="Ton pseudo" value="ali_baba" />
+            <span class="header-avatar" aria-label="Avatar de ali_baba">A</span>
+          </div>
+        </header>
+        <div class="page">
+          <h1>Chatter avec un agent</h1>
+
+          <div class="field">
+            <label for="subject-4">Matière</label>
+            <select id="subject-4" class="select">
+              <option value="maths" selected>Mathématiques</option>
+              <option value="francais">Français</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="question-4">Ta question</label>
+            <textarea id="question-4" class="textarea" maxlength="2000">Explique-moi la dérivée de f(x)=x²+3x.</textarea>
+          </div>
+
+          <div>
+            <button class="btn btn-primary">
+              <span aria-hidden="true">→</span> Envoyer
+            </button>
+          </div>
+
+          <div class="stream" role="log" aria-live="polite" aria-busy="false">
+            <p class="stream-content">La dérivée de f(x) = x² + 3x est f'(x) = 2x + 3. La règle appliquée est celle de la somme : (x²)' = 2x et (3x)' = 3. Donc f'(x) = 2x + 3.</p>
+          </div>
+
+          <p class="sources">
+            Sources :
+            <span class="filename">cours_derivees.pdf</span> · p.4 ·
+            <span class="filename">td_derivees.pdf</span> · p.2
+          </p>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- ÉTAT 5 — Erreur réseau avec bouton Réessayer                  -->
+      <!-- ============================================================ -->
+      <div class="mockup-cell">
+        <h2>5. Erreur réseau — bouton Réessayer</h2>
+        <header class="header">
+          <div class="header-logo">ktutor</div>
+          <nav class="header-nav" aria-label="Primary">
+            <a href="/chat" class="active">Chat</a>
+            <a href="/upload" aria-disabled="true" tabindex="-1">Upload</a>
+          </nav>
+          <div class="header-spacer"></div>
+          <div class="header-pseudo">
+            <input type="text" placeholder="Ton pseudo" aria-label="Ton pseudo" value="ali_baba" />
+            <span class="header-avatar" aria-label="Avatar de ali_baba">A</span>
+          </div>
+        </header>
+        <div class="page">
+          <h1>Chatter avec un agent</h1>
+
+          <div class="field">
+            <label for="subject-5">Matière</label>
+            <select id="subject-5" class="select">
+              <option value="maths" selected>Mathématiques</option>
+              <option value="francais">Français</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="question-5">Ta question</label>
+            <textarea id="question-5" class="textarea" maxlength="2000">Explique-moi la dérivée de f(x)=x²+3x.</textarea>
+          </div>
+
+          <div>
+            <button class="btn btn-primary">
+              <span aria-hidden="true">→</span> Envoyer
+            </button>
+          </div>
+
+          <div class="stream" role="log" aria-live="polite" aria-busy="false">
+            <p class="stream-content" style="color: var(--color-text-tertiary);">Aucun message reçu.</p>
+          </div>
+
+          <div class="card card-error" role="alert">
+            <div class="card-row">
+              <span class="card-icon card-icon-error" aria-hidden="true">⚠</span>
+              <div class="card-body">
+                <p class="card-title">Erreur réseau. Vérifie ta connexion.</p>
+                <p class="card-code">code: <code>network</code></p>
+                <div class="card-actions">
+                  <button class="btn btn-secondary btn-sm">Réessayer</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- ÉTAT 6 (bonus) — Pas de pseudo                                -->
+      <!-- ============================================================ -->
+      <div class="mockup-cell">
+        <h2>6. Pas de pseudo (variante) — bouton désactivé, label warning</h2>
+        <header class="header">
+          <div class="header-logo">ktutor</div>
+          <nav class="header-nav" aria-label="Primary">
+            <a href="/chat" class="active">Chat</a>
+            <a href="/upload" aria-disabled="true" tabindex="-1">Upload</a>
+          </nav>
+          <div class="header-spacer"></div>
+          <div class="header-pseudo">
+            <input type="text" placeholder="Ton pseudo" aria-label="Ton pseudo" value="" aria-invalid="true" />
+            <span class="header-avatar" aria-label="Avatar de ?">?</span>
+          </div>
+        </header>
+        <div class="page">
+          <h1>Chatter avec un agent</h1>
+
+          <p class="pseudo-missing">Choisis un pseudo pour commencer.</p>
+
+          <div class="field">
+            <label for="subject-6">Matière</label>
+            <select id="subject-6" class="select">
+              <option value="maths">Mathématiques</option>
+              <option value="francais">Français</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="question-6">Ta question</label>
+            <textarea id="question-6" class="textarea" maxlength="2000"></textarea>
+          </div>
+
+          <div>
+            <button class="btn btn-primary" aria-disabled="true" tabindex="-1" disabled>
+              <span aria-hidden="true">→</span> Envoyer
+            </button>
+          </div>
+
+          <div class="stream" role="log" aria-live="polite" aria-busy="false">
+            <div class="stream-empty">
+              <p>Pose une question à ton agent.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </body>
+</html>

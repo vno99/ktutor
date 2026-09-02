@@ -21,7 +21,31 @@
     "navUpload": "Upload",
     "avatarAlt": "Avatar de {pseudo}"
   },
-  "chat": {},
+  "chat": {
+    "title": "Chatter avec un agent",
+    "subjectLabel": "Matière",
+    "subjectMaths": "Mathématiques",
+    "subjectFrancais": "Français",
+    "questionLabel": "Ta question",
+    "questionPlaceholder": "Pose une question sur ton cours…",
+    "send": "Envoyer",
+    "sourcesLabel": "Sources :",
+    "sourcesMore": "… et {n} autres",
+    "emptyState": "Pose une question à ton agent.",
+    "pseudoMissing": "Choisis un pseudo pour commencer.",
+    "retry": "Réessayer",
+    "charCountRemaining": "{n} caractères restants",
+    "examplesTitle": "Exemples :",
+    "exampleMaths": "Qu'est-ce qu'une dérivée ?",
+    "exampleFrancais": "Règle du participe passé avec avoir ?"
+  },
   "upload": {},
-  "errors": {}
+  "errors": {
+    "network": "Erreur réseau. Vérifie ta connexion.",
+    "lost": "Connexion perdue. Réessayer ?",
+    "cross_tenant": "Cette question concerne un autre élève.",
+    "no_subject": "Matière inconnue. Choisis « Mathématiques » ou « Français ».",
+    "invalid_pseudo": "Pseudo invalide. 3 à 32 caractères (lettres, chiffres, underscore).",
+    "unknown": "Une erreur est survenue. Réessaye plus tard."
+  }
 }

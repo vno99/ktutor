@@ -5,7 +5,8 @@
       "startServerReadyPattern": "Ready in",
       "startServerReadyTimeout": 60000,
       "url": [
-        "http://localhost:3000/fr/"
+        "http://localhost:3000/fr/",
+        "http://localhost:3000/fr/chat"
       ],
       "numberOfRuns": 1
     },
