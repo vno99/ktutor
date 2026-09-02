@@ -7,8 +7,10 @@ from datetime import datetime
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from app.core.auth.passwords import hash_password, verify_password
 from app.core.database.models import (
     Attempt,
     Base,
@@ -17,6 +19,8 @@ from app.core.database.models import (
     Exercise,
     ExerciseType,
     Subject,
+    User,
+    UserRole,
 )
 
 
@@ -381,3 +385,79 @@ class TestAttemptModel:
         bob = session.query(Attempt).filter(Attempt.student_pseudo == "bob").all()
         assert len(ali) == 2
         assert len(bob) == 1
+
+
+class TestUserModel:
+    """SQLAlchemy ``User`` model — s12 (auth).
+
+    Covers:
+
+    * basic row creation with default role;
+    * case-insensitive uniqueness at the SQL constraint level
+      (``UniqueConstraint(func.lower(User.pseudo), ...)``);
+    * the bcrypt guarantee: ``password_hash`` is never plain text and
+      round-trips through :func:`verify_password`.
+    """
+
+    def test_create_user_with_minimal_fields(self, session) -> None:
+        user = User(
+            pseudo="ali_baba",
+            password_hash=hash_password("correcthorsebatterystaple"),
+            role=UserRole.ELEVE,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+        assert user.pseudo == "ali_baba"
+        assert user.role is UserRole.ELEVE
+        assert isinstance(user.created_at, datetime)
+
+    def test_default_role_is_eleve(self, session) -> None:
+        user = User(
+            pseudo="ali",
+            password_hash=hash_password("correcthorsebatterystaple"),
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+        assert user.role is UserRole.ELEVE
+
+    def test_two_users_with_different_pseudos_coexist(self, session) -> None:
+        a = User(pseudo="ali", password_hash=hash_password("passwordone1"))
+        b = User(pseudo="bob", password_hash=hash_password("passwordtwo2"))
+        session.add_all([a, b])
+        session.commit()
+        assert session.query(User).count() == 2
+
+    def test_pseudo_unique_case_insensitive(self, session) -> None:
+        """AC3 — pseudo unique case-insensitive at the SQL constraint level."""
+        session.add(User(pseudo="Ali", password_hash=hash_password("passwordone1")))
+        session.commit()
+        session.add(User(pseudo="ali", password_hash=hash_password("passwordtwo2")))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    def test_pseudo_unique_exact_case(self, session) -> None:
+        """Sanity check: two distinct pseudos (different case + different chars) coexist."""
+        session.add(User(pseudo="ali", password_hash=hash_password("passwordone1")))
+        session.add(User(pseudo="bob", password_hash=hash_password("passwordtwo2")))
+        session.commit()
+        assert session.query(User).count() == 2
+
+    def test_password_hash_not_plaintext(self, session) -> None:
+        """AC2 — ``password_hash`` is bcrypt, never the plain text the user typed."""
+        plain = "correcthorsebatterystaple"
+        user = User(pseudo="ali", password_hash=hash_password(plain))
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+        assert user.password_hash != plain
+        assert user.password_hash.startswith("$2b$12$")
+        # Round-trip: the wrapper accepts the original plain password.
+        assert verify_password(plain, user.password_hash) is True
+        # And rejects a different password.
+        assert verify_password("wrong-horse", user.password_hash) is False

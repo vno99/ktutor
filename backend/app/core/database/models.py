@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, Integer, String, func
+from sqlalchemy import JSON, DateTime, Enum, Index, Integer, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -205,3 +205,76 @@ class Attempt(Base):
             f"exercise_id={self.exercise_id} attempt_number={self.attempt_number} "
             f"is_success={self.is_success}>"
         )
+
+
+class UserRole(str, enum.Enum):
+    """Role discriminator for the ``users`` table.
+
+    Aligned with ADR 005 § « register public crée ``eleve`` uniquement »:
+    the ``POST /api/auth/register`` endpoint only ever creates
+    ``eleve`` rows; ``parent`` and ``admin`` are created by an
+    admin-only script (s15).
+    """
+
+    ELEVE = "eleve"
+    PARENT = "parent"
+    ADMIN = "admin"
+
+
+class User(Base):
+    """An end-user account (student, parent, or admin).
+
+    Owned by story s12 (auth). The case-insensitive uniqueness of
+    ``pseudo`` is enforced at the DB level via
+    ``UniqueConstraint(func.lower(pseudo), ...)`` so the database is
+    the last line of defence against duplicates (``Ali`` vs ``ali``).
+    The router applies a pre-check to fail fast on the common case,
+    but the constraint catches the race condition where two concurrent
+    requests pass the pre-check at the same time.
+
+    The password is stored as a bcrypt hash (``$2b$12$...``); the
+    schema in :mod:`app.api.auth.schemas` is the entry point that
+    enforces length and encoding invariants.
+    """
+
+    __tablename__ = "users"
+    __table_args__ = ()  # The functional unique index is appended after the class is built.
+
+    pseudo: Mapped[str] = mapped_column(
+        String(32),
+        primary_key=True,
+        nullable=False,
+    )
+    password_hash: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, name="user_role_enum", native_enum=False, length=16),
+        nullable=False,
+        default=UserRole.ELEVE,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<User pseudo={self.pseudo!r} role={self.role.value}>"
+        )
+
+
+# Case-insensitive uniqueness (AC3, D3): a functional unique index on
+# ``LOWER(pseudo)``. ``UniqueConstraint`` would expand ``func.lower``
+# to a virtual column in the CREATE TABLE, which SQLite refuses
+# (``no such column: pseudo_lower``); an ``Index`` is the idiomatic
+# SQLAlchemy 2.0 way and is supported by both SQLite (tests) and
+# PostgreSQL (production). The DB is the *only* source of truth —
+# the router pre-check is UX, not security.
+Index(
+    "uq_users_pseudo_lower",
+    func.lower(User.__table__.c.pseudo),
+    unique=True,
+)
