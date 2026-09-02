@@ -45,12 +45,15 @@ jobs:
           context: backend/tests/fixtures/seaweedfs
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/ktutor/seaweedfs-ci:4.44
-          # Use GHA cache for reads (skip rebuild if image unchanged),
-          # but skip cache-to: the docker driver on GH Actions runners
-          # does NOT support cache export. Builds will be slightly slower
-          # (full rebuild every time) until docker/buildx with a different
-          # driver is configured.
-          cache-from: type=gha
+          # No cache-from. We previously had `cache-from: type=gha` here,
+          # but without a matching `cache-to` (the docker driver on
+          # ubuntu-latest runners does NOT support cache export) the cache
+          # was never written, only read — so any time GHCR garbage-collected
+          # a referenced blob, the build failed with
+          # `ERROR: failed to build: unknown blob` during push. Building
+          # from scratch is the only safe option until docker/buildx with a
+          # different driver is configured on the runner.
+          pull: false
 
   # ─────────────────────────────────────────────────────────────
   # Backend: Python 3.12 + pytest with service containers
