@@ -458,20 +458,71 @@
 
 ### Story s11b-frontend-chat — Page /chat avec streaming SSE (split 2/3, gated by s11a)
 
-> Dépend de s11a. Sera planifiée et implémentée sur la branche `feature/s11b-frontend-chat` après le merge de s11a.
-
 **As an** élève **I want** chatter avec l'agent depuis l'interface web **so that** je voie la réponse s'afficher mot par mot.
+
+> **Dépend de s11a (merged, `c3f1829`)**. Sera planifiée et implémentée sur la branche `feature/s11b-frontend-chat`. Sibling story : s11c-frontend-upload (l'upload arrive séparément).
 
 ### Complexity
 
-**3** — Page `/chat` + SSE consumer via `fetch` + `ReadableStream` + `chatStore` Zustand.
+**3** — Page `/chat` + SSE consumer via `fetch` + `ReadableStream` + `chatStore` Zustand + couplage à l'API s09 mergée (`POST /api/chat/stream`).
 
-### Acceptance criteria (résumé)
+### Acceptance criteria
 
-- [ ] Page `/chat` : question + matière + réponse streamée en temps réel.
-- [ ] La page lit le flux SSE et ajoute les chunks à mesure.
-- [ ] Les 5 tests e2e chat passent (Playwright + `page.route` stub SSE).
-- [ ] axe-core : 0 violation critique sur `/fr/chat`.
+- [ ] La page `/{locale}/chat` (locales `fr` par défaut, `en`) rend un sélecteur de matière (`maths` | `francais`), un champ question (`<textarea>`, 1-2000 chars), un bouton « Envoyer » (44×44 px touch target), et une zone de réponse — tous les libellés via `useTranslations('chat')`, jamais en dur.
+- [ ] Le bouton « Envoyer » est désactivé tant que : pas de pseudo valide (cookie `pseudo`, regex `^[a-zA-Z0-9_]{3,32}$`), pas de matière sélectionnée, pas de question non vide. L'état de désactivation est annoncé aux lecteurs d'écran (`aria-disabled="true"` + `tabindex="-1"`), pas juste `disabled` (cf. design-system l.228).
+- [ ] À l'envoi, le client appelle `POST {NEXT_PUBLIC_API_URL}/api/chat/stream` (axios, `Accept: text/event-stream`, `Content-Type: application/json`) avec le body `{ pseudo, subject, question }`. Le `pseudo` est lu depuis le cookie via `useAuthStore`, jamais tapé dans l'URL ni dans le state.
+- [ ] La réponse est lue via `fetch().body.getReader()` (PAS `EventSource` — voir Piège #2 recherche + ADR 006) et chaque chunk SSE est parsé ligne par ligne : tout préfixe `data: ` est JSON-decodé, un `data:` vide est ignoré, un chunk vide est ignoré. Trois formes reconnues et gérées : `{token: "..."}` → append au buffer assistant ; `{done: true, sources: [{filename, chunk_index}, ...]}` → termine le stream, affiche la ligne « Sources : ... » ; `{error, code}` → affiche un message inline mappé sur `code` (`cross_tenant` / `no_subject` / `invalid_pseudo` / `unknown`).
+- [ ] La zone de réponse utilise `<StreamingMessage>` (déjà squelette en s11a) : `role="log"`, `aria-live="polite"`, `aria-busy={isStreaming}`. Tant que `isStreaming && !hasContent`, le typing indicator 3 points (déjà implémenté) s'affiche. Dès qu'un token arrive, les points disparaissent et les tokens s'accumulent en `text-base text-text-primary`.
+- [ ] Une **erreur 4xx/5xx du endpoint** (ex. : backend down, CORS, timeout) affiche un message inline « Erreur réseau. Vérifie ta connexion. » avec un bouton « Réessayer » qui re-déclenche la dernière requête. Une **connexion coupée avant `done`** affiche « Connexion perdue. Réessayer ? » avec le même bouton. Pas de toast, pas d'`alert()`.
+- [ ] Un **pseudo manquant ou invalide** (cookie vide / regex échouée) affiche au-dessus de la zone de stream le label « Choisis un pseudo pour commencer » et met l'input pseudo du header en `aria-invalid="true"`. Le bouton « Envoyer » est désactivé.
+- [ ] Le `chatStore` Zustand (`frontend/lib/stores/chatStore.ts`) gère l'état : `{ messages: Array<{role: 'user' | 'assistant', content: string, sources?: SourceCitation[] | null, error?: ChatStreamError | null}>, isStreaming: boolean, lastQuestion: string | null, send: (input) => Promise<void>, retry: () => Promise<void>, reset: () => void }`. Le store est hydraté client-side (`hydrate()` après mount, comme `authStore`).
+- [ ] La page est responsive : à 360px (smartphone) la textarea + bouton sont full-width et le `<Header>` masque les liens Chat/Upload desktop (la bottom tab bar les montre) ; à 768px (tablette) la page est en `max-w-3xl mx-auto` et les liens desktop du header sont visibles (bottom tab bar masquée). Pas de scroll horizontal aux deux viewports.
+- [ ] Axe-core (Playwright + `@axe-core/playwright`) : 0 violation `critical` ni `serious` sur `/fr/chat` ET `/en/chat`. Lighthouse Accessibility ≥ 90 sur `/fr/chat` (assertion CI).
+- [ ] Tests e2e Playwright dans `frontend/e2e/chat.spec.ts` (≥ 5 tests) couvrent : (a) la page rend avec tous les contrôles et les bons `htmlFor` ; (b) une réponse stubbée via `page.route('**/api/chat/stream', ...)` apparaît token par token dans la zone (`page.route` stub un flux SSE `text/event-stream` valide, 2-3 `data: {token: ...}` puis `data: {done: true, sources: [...]}`) ; (c) un flux SSE se terminant par `{error, code: "unknown"}` affiche le message inline rouge et un bouton Réessayer ; (d) la page est navigable au clavier (Tab atteint la textarea, le sélecteur, le bouton Envoyer) ; (e) le toggle FR/EN bascule toute l'UI chat en anglais.
+- [ ] `bash frontend/scripts/check-i18n.sh` exit 0 (aucune chaîne UI en dur dans la page chat, les composants, ou le store). `pnpm run lint` + `pnpm run typecheck` + `pnpm run build` exit 0. `pnpm exec playwright test` exit 0 (les 11 tests s11a + les ≥ 5 tests s11b verts).
+- [ ] Documentation de l'API consommée : un commentaire en tête de `frontend/lib/stores/chatStore.ts` référence le contrat s09 (`backend/app/api/chat/router.py:64-133`, `backend/app/api/chat/sse.py:21-30`, `backend/app/api/chat/schemas.py:34-77`) et explique les 3 formes d'event SSE consommées.
+
+### Dependencies
+
+- **s11a-frontend-bootstrap merged ✅** (vérifié : `c3f1829` contient le squash s11a). Sans s11a, pas de `<StreamingMessage>`, pas de `<Header>` sticky, pas de `authStore` cookie-backed, pas de design system, pas de `next-intl`.
+- **s09-api-chat-streaming merged ✅** (vérifié : `c5f6163`). Contrat exact consommé par cette story — voir le commentaire d'AC sur `chatStore.ts`.
+- **s10-api-upload merged ✅** (vérifié : `ff21046`) — uniquement pour le fait que le store axios est déjà instancié dans `frontend/lib/api.ts`. s11b ne consomme PAS `/api/documents/upload` (c'est s11c).
+
+### Agentic notes
+
+- **Files involved** (nouveaux) : `frontend/app/(public)/[locale]/chat/page.tsx`, `frontend/lib/stores/chatStore.ts`, `frontend/lib/api/chat.ts` (helper de parsing SSE, isolation de la logique pure pour les tests unitaires futurs), `frontend/e2e/chat.spec.ts`.
+- **Files involved** (modifiés) : `frontend/messages/fr.json` + `frontend/messages/en.json` (ajout namespace `chat` : titre, sous-titre, sélecteur matière, placeholder textarea, bouton Envoyer, label exemples, label Sources, message erreur réseau, message connexion perdue, message pseudo manquant, message erreur code-mappée), `frontend/components/StreamingMessage.tsx` (la version squelette de s11a est branchée au vrai state — props `error?: ChatStreamError | null` et `sources?: SourceCitation[] | null` ajoutées), `frontend/components/Header.tsx` (le lien `/chat` n'est plus `aria-disabled` — c'est une vraie route maintenant ; idem `/upload` reste désactivé en attendant s11c, gap explicite).
+- **Constraints** (cf. `AGENTS.md` § Frontend + `CLAUDE.md` § i18n/a11y) :
+  - **PAS d'`EventSource`** pour consommer le SSE — utiliser `fetch().body.getReader()`. Raison : `EventSource` force le type MIME `text/event-stream` et ne permet pas de customiser la requête (impossible d'envoyer un `Content-Type: application/json` proprement, et le re-fit de `Authorization: Bearer` en s15 ne passera pas). ADR 006 verrouille ce choix.
+  - **PAS de hardcoded strings** : tout via `useTranslations('chat')`. `bash scripts/check-i18n.sh` doit exit 0.
+  - **Axios ne gère PAS le streaming nativement** : ne PAS utiliser `apiClient.post(...)` pour le stream (axios bufferise par défaut). Faire un `fetch` direct dans `chatStore.send`, et garder `apiClient` pour les futurs endpoints non-streaming (s11c upload).
+  - **i18n EN/FR complet** : le namespace `chat` doit couvrir les 2 langues. Le test Playwright (e) vérifie le toggle.
+  - **A11y** : `aria-live="polite"` sur la zone de stream (déjà câblé dans `<StreamingMessage>`), `aria-busy` dynamique, focus visible (déjà dans le design system), `prefers-reduced-motion` désactive l'animation des 3 points.
+  - **Multi-tenancy** : le `pseudo` est lu depuis le store (cookie-backed en s11a, JWT en s15). Ne JAMAIS hardcoder un pseudo côté client, ne JAMAIS l'extraire du body de la requête autrement que via `useAuthStore.getState().pseudo`.
+  - **CI** : le job `frontend` doit rester vert ; les étapes Playwright / Lighthouse / check-i18n s'appliquent automatiquement. Lighthouse audite `/fr/chat` en plus de `/fr/` (étendre `lighthouserc.json.urls`).
+- **Traps** (recherche s11 Pièges #1-#14 + retours de s11a) :
+  - **Piège #2** (P0) : `EventSource` vs `fetch` → utiliser `fetch().body.getReader()`, documenter pourquoi dans le commentaire de `chatStore.send`.
+  - **Piège #3** (P0) : le dev server Next.js peut bufferiser le SSE ; en dev, le `next.config.ts` doit avoir `reactStrictMode: true` et le `next dev` doit passer `X-Accel-Buffering: no` (déjà côté backend). Côté frontend, s'assurer qu'on ne bufferise pas côté JS (pas de `await response.text()`).
+  - **Piège #6** (P1) : les tokens vides en début de stream (certains LLMs émettent un chunk de tool-call metadata) — l'API s09 router filtre les tokens vides (`event.event == "token"` et ignore les `event.content` vides) ; le frontend doit quand même gérer un `{token: ""}` sans crash (concat no-op).
+  - **Piège #7** (P1) : `prefers-reduced-motion` doit être respecté pour le typing indicator. Le `animate-pulse` Tailwind est réduit par défaut dans Tailwind 4 si le user a activé `prefers-reduced-motion` (`motion-reduce:animate-none` à ajouter sur les 3 points).
+  - **Piège #8** (P0) : le toggle FR/EN doit persister via le cookie next-intl (déjà géré par le middleware s11a). Le test Playwright (e) recharge après toggle pour vérifier.
+  - **Piège #11** (P0) : NE PAS utiliser de `<div onClick>` pour la drop zone ou le bouton « Réessayer » — toujours un vrai `<button>` focusable.
+  - **Retour s11a Minor #1** : les liens désactivés doivent avoir `aria-disabled="true"` ET `tabindex="-1"` ET ne pas être des `<Link>` quand désactivés (utiliser un `<span>` stylé ou un `<button disabled>`). Le lien `/chat` du header n'est plus désactivé en s11b, mais `/upload` reste désactivé tant que s11c n'est pas mergé.
+  - **Retour s11a Minor #2** : `<html lang>` est hardcodé à `fr` en s11a — pas un blocker pour s11b, mais le test Lighthouse `/en/chat` va peut-être chuter. À noter dans les gaps de la review s11b (suivi s22 ou s11c).
+  - **Retour s11a Minor #3** : `output: "standalone"` omis (EPERM Windows), pas un blocker. Suivi s11b si Lighthouse en prod demande la refacto.
+  - **Trap spécifique SSE** : la réponse peut être coupée par une erreur de proxy (ngrok, Cloudflare) — le handler fetch doit détecter `reader.closed` et afficher le message « Connexion perdue ». Le test (c) ne couvre QUE l'erreur explicite `{error, code}` ; un test manuel ou un mock `page.route` qui interrompt la connexion couvre le cas « connexion perdue ». Si trop complexe, gap à noter pour la review.
+  - **Trap specific axios** : `apiClient` est utilisé pour `/api/documents/upload` en s11c, mais PAS pour le stream chat. Documenter dans `frontend/lib/api.ts` pourquoi le stream fait un `fetch` direct.
+- **Open questions** (à trancher en `ks-research` ou dans la PR) :
+  - **Q1** : faut-il un bouton « Stop » pour interrompre un stream en cours ? L'AC7 original du story mentionne ce bouton mais l'AC actuel de s11b ne l'inclut pas (cf. design-system § 10 gaps : « ajouté dans une story ultérieure »). Décision : **hors-scope s11b**, gap à noter dans la review, suivi s22.
+  - **Q2** : faut-il afficher le contenu de la réponse précédente quand l'utilisateur pose une nouvelle question (i.e. garder l'historique de la conversation en mémoire) ? L'AC1 demande « question + matière + réponse streamée » (singulier) ; le design § 4.4 parle d'un « flux vertical » (implicite : cumulatif). Décision : **cumulatif en mémoire du store**, persistance en s19. Pas d'historique côté backend en s11b.
+  - **Q3** : pour le test Playwright (b), comment stubber proprement un SSE ? `page.route` accepte-t-il de retourner un `text/event-stream` avec un body lu depuis un fixture ? Réponse : oui, `page.route` peut retourner `new Response(readableStream, { headers: { 'Content-Type': 'text/event-stream' } })`. Référence : doc Playwright sur `page.route` + `Response.body`. À vérifier en Research.
+- **Out-of-scope** (à NE PAS implémenter en s11b, gaps explicites pour la review) :
+  - Persistance de l'historique de conversation côté backend → **s19** (`/chat/history`).
+  - Bouton « Stop » sur le stream → **s22** (a11y/UX pass) ou s11b' si on l'inclut.
+  - Bouton « Régénérer la réponse » → non prévu dans le PRD actuel.
+  - Streaming depuis l'API corrigée s15 (JWT, multi-tenant strict) → trivial refacto du `send` une fois `useAuthStore.pseudo` branché sur le JWT, mais hors-scope ici.
+  - Affichage des chunks par paragraphe (recherche D7) → RAG actuel retourne un seul stream, pas de paragraph-level chunking → out-of-scope.
+  - `<html lang>` dynamique → s22 ou s11c.
 
 ### Story s11c-frontend-upload — Page /upload avec drag & drop (split 3/3, gated by s11a)
 
