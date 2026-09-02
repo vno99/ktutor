@@ -1,7 +1,7 @@
 # Review — Story Breakdown
 
 > Revu par : sous-agent `stories-reviewer` (contexte frais).
-> Date : 2026-09-02 (re-review après étoffement de s11b-frontend-chat)
+> Date : 2026-09-02 (re-review après étoffement de s11c-frontend-upload)
 > Source : `docs/stories.md` vs `docs/prd.md`
 
 ## Note méthodologique
@@ -12,7 +12,7 @@ Le PRD ne contient pas une table littérale « Replicated (core loop) » ni une 
 
 | Périmètre PRD (in) | Story(s) | OK ? |
 |---|---|---|
-| Upload de documents (PDF, images dactylo, manuscrites OCR LLM) | s01, s10, s11c (stub) | OK (s11c stub à étoffer — voir finding minor) |
+| Upload de documents (PDF, images dactylo, manuscrites OCR LLM) | s01, s10, s11c (maintenant fleshed out) | OK |
 | Pipeline RAG par matière (collection par matière × élève) | s01, s05 | OK |
 | Chat RAG (réponse sourcée de l'agent) | s02, s05, s09, s11b, s19 | OK |
 | Génération d'exercices (QCM, problème, rédaction, flashcards) | s03, s06, s06b | OK |
@@ -21,8 +21,8 @@ Le PRD ne contient pas une table littérale « Replicated (core loop) » ni une 
 | Multi-tenancy (PostgreSQL, ChromaDB, MinIO, JWT) | s01, s10, s15 + tests d'isolation dans toutes les stories API | OK |
 | Authentification & RBAC (JWT RS256, admin/parent/élève, identifiés par pseudo) | s12, s13, s13b, s15 | OK |
 | Dashboards (progression élève, vue parent lecture seule) | s16, s17 | OK |
-| i18n (FR par défaut, EN, next-intl) | s11a (scaffold), s11b (chat ns), s21 (consolidation) | OK |
-| Accessibilité (responsive smartphone/tablette, WCAG 2.1 A) | s11a (scaffold), s11b (chat a11y), s22 (audit) | OK |
+| i18n (FR par défaut, EN, next-intl) | s11a (scaffold), s11b (chat ns), s11c (upload ns), s21 (consolidation) | OK |
+| Accessibilité (responsive smartphone/tablette, WCAG 2.1 A) | s11a (scaffold), s11b (chat a11y), s11c (upload a11y), s22 (audit) | OK |
 | Observabilité (logs structurés, OTel, Prometheus, alerting) | s23, s24 | OK |
 
 - [x] Chaque feature du périmètre est livrée par au moins une story. Périmètre complet.
@@ -44,31 +44,50 @@ Le PRD ne contient pas une table littérale « Replicated (core loop) » ni une 
 
 ## 3. Technical-layer check
 
-Toutes les stories sont des slices end-to-end avec valeur utilisateur (CLI command, page, endpoint). Aucune story « set up the database » ou « create the API layer » isolée. Les modèles SQLAlchemy sont créés *à l'intérieur* de la story qui en a besoin (s01, s03, s04, s12, etc.).
+Toutes les stories sont des slices end-to-end avec valeur utilisateur (CLI command, page, endpoint). Aucune story « set up the database » ou « create the API layer » isolée. Les modèles SQLAlchemy sont créés *à l'intérieur* de la story qui en a besoin (s01, s03, s04, s12, s14, s18, s20, s25).
 
 - [x] Aucune story n'est une couche technique seule.
 
-## 4. AC testability check (focus s11b)
+## 4. AC testability check (focus s11c)
 
-| s11b AC | Testable ? | Comment |
+| s11c AC | Testable ? | Comment |
 |---|---|---|
-| AC1 (page rend avec tous les contrôles, htmlFor) | oui | Playwright DOM query + axe-core |
-| AC2 (button désactivé, aria-disabled, tabindex) | oui | Playwright + `getByRole('button', { name: 'Envoyer' })` + attributs ARIA |
-| AC3 (POST avec bons headers/body) | oui | Playwright `page.route` + assertion request |
-| AC4 (parsing SSE token par token) | oui | Playwright stub SSE stream + DOM |
-| AC5 (`role="log"`, `aria-live`, `aria-busy`) | oui | DOM + axe-core |
-| AC6 (erreur 4xx/5xx et coupure de connexion) | oui | Playwright stub + DOM |
-| AC7 (pseudo manquant/invalide) | oui | Playwright clear cookie + reload |
-| AC8 (chatStore state) | oui | Test unitaire Zustand store |
-| AC9 (responsive 360/768) | oui | Playwright viewports |
-| AC10 (axe-core 0 critical/serious + Lighthouse ≥ 90) | oui | CI job |
-| AC11 (5 tests e2e couvrant 5 cas) | oui | Playwright |
-| AC12 (lint/typecheck/build/test exit 0) | oui | CI job |
-| AC13 (commentaire head chatStore référence contrat) | vérification statique | grep du commentaire |
+| AC1 (page rend avec sélecteur matière, FileUpload, bouton Envoyer, i18n) | oui | Playwright DOM + i18n check |
+| AC2 (FileUpload : click picker, drag & drop, mobile camera capture) | oui | Playwright + `setInputFiles` + drag simulation + viewport ≤ 768px |
+| AC3 (drag styling : onDragOver → primary border, onDrop → consume event) | oui | Playwright drag + CSS assertion |
+| AC4 (file card avec icône, nom, taille formatée MB, bouton Retirer) | oui | Playwright DOM + `Intl.NumberFormat` |
+| AC5 (bouton Envoyer désactivé, aria-disabled, tabindex) | oui | Playwright + ARIA |
+| AC6 (POST multipart via apiClient, FormData 3 champs) | oui | Playwright `page.route` request body inspection |
+| AC7 (spinner pendant upload, drop zone désactivée) | oui | Playwright + CSS state |
+| AC8 (201 indexed → success card avec chunks count) | oui | Playwright stub 201 |
+| AC8 (201 manual_review_needed → warning card OCR) | oui | Playwright stub 201 |
+| AC9a (413 → message « Fichier trop volumineux ») | oui | Playwright stub 413 |
+| AC9b (415 → message « Extension non supportée ») | oui | Playwright stub 415 |
+| AC9c (422 invalid_pseudo → message reload) | oui | Playwright stub 422 |
+| AC9d (422 ocr_failure → message OCR échoué) | oui | Playwright stub 422 |
+| AC9e (500 storage_failure → message erreur serveur) | oui | Playwright stub 500 |
+| AC10 (erreur réseau → message inline Réessayer) | oui | Playwright abort/timeout |
+| AC11 (aucun pseudo → label warning + aria-invalid) | oui | Playwright clear cookie |
+| AC12 (uploadStore Zustand state) | oui | Test unitaire |
+| AC13 (responsive 360/768) | oui | Playwright viewports |
+| AC14 (axe-core 0 critical/serious + Lighthouse ≥ 90) | oui | CI job |
+| AC15 (≥ 4 tests e2e) | oui | Playwright |
+| AC16 (lint/typecheck/build/test exit 0) | oui | CI job |
+| AC17 (commentaire head uploadStore référence s10) | grep | statique |
 
-Toutes les ACs de s11b sont vérifiables. Le découpage est précis au point qu'il anticipe les pièges SSE (Piège #2 recherche + ADR 006).
+Toutes les ACs de s11c sont vérifiables. Le mapping `code → UI state` dans AC9 couvre tous les `UploadErrorResponse.code` du contrat s10 (`invalid_file` → 413/415, `invalid_pseudo` → 422, `ocr_failure` → 422, `storage_failure` → 500), plus le cas erreur réseau.
 
-s11c a 3 ACs au niveau résumé — non testables tels quels. Voir finding ci-dessous.
+**Couverture des 8 états UI du contrat s10** :
+- 201 indexed → AC8 ✅
+- 201 manual_review_needed → AC8 (second cas) ✅
+- 413 → AC9a ✅
+- 415 → AC9b ✅
+- 422 invalid_pseudo → AC9c ✅
+- 422 ocr_failure → AC9d ✅
+- 500 storage_failure → AC9e ✅
+- Network error → AC10 ✅
+
+Les 8 états UI sont couverts.
 
 ## 5. Dependency order
 
@@ -86,27 +105,27 @@ Walked all `### Dependencies` blocks top-to-bottom :
 - s09 → s02, s05 OK
 - s10 → s01 OK
 - s11a → s09, s10 (merged) OK
-- **s11b → s11a (merged `c3f1829`), s09 (merged `c5f6163`), s10 (merged `ff21046`)** OK
-- s11c → s11a OK
+- s11b → s11a (merged `c3f1829`), s09 (merged `c5f6163`), s10 (merged `ff21046`) OK
+- **s11c → s11a (merged `c3f1829`), s10 (merged `ff21046`), s01 (merged)** OK
 - s12 → s01 OK
 - s13 → s12 OK
 - s13b → s12, s13 OK
 - s14 → s12, s13, s13b OK
-- s15 → s13, all prior API endpoints OK
+- s15 → s13 + all prior API OK
 - s16 → s04, s07, s15 OK
 - s17 → s14, s15, s16 OK
 - s18 → s10, s15 OK
 - s18b → s18, s14, s15 OK
 - s19 → s15 OK
 - s20 → s04, s07, s08, s16 OK
-- s21 → s11b (et s11c si consolidation i18n touche la page upload) — voir finding minor
-- s22 → s11 OK
-- s23 → s09, s10, s12-s20 OK
+- **s21 → s11 (ambigu — voir Finding 3)** STALE id
+- s22 → s11 (ambigu) STALE id
+- s23 → all prior API OK
 - s24 → s23 OK
 - s25 → s18, s20 OK
-- s26 → s11, s16, s17, s18, s20 OK
+- **s26 → s11 (ambigu) STALE id**
 
-No cycles, no forward references among declared dependencies. La correction `s12b → s13b` (résolue lors de la review précédente) reste valide.
+s21, s22 et s26 référencent encore l'ancien id monolithique « s11 ». Ce n'est pas un blocker d'exécution (s11a est shipped, s11b/s11c sont fleshed out), mais c'est un id obsolète. La sémantique pratique est : s21 → s11b shippé, s22 → s11b + s11c shippés, s26 → s11b + s11c + s19 (history) shippés.
 
 ## 6. Complexity scores
 
@@ -122,20 +141,20 @@ No cycles, no forward references among declared dependencies. La correction `s12
 - s09: 3
 - s10: 2
 - s11a: 3 (re-scored from 5 after split)
-- **s11b: 3** (page + SSE consumer + store + i18n + a11y + 5 e2e — voir note)
-- s11c: 2 (stub — voir finding)
+- s11b: 3
+- **s11c: 2** (justifiée — page + FileUpload étendu, pas de SSE, multipart géré par axios)
 - s12: 2
 - s13: 3
 - s13b: 3
 - s14: 2
 - s15: 3
 - s16: 3
-- s17: 3 (relevée de 2 à 3, risk stated)
+- s17: 3 (risk stated)
 - s18: 4 (risk stated — LLM vision non-deterministic)
 - s18b: 2
 - s19: 2
 - s20: 3
-- s21: 3 (relevée de 2 à 3, risk stated)
+- s21: 3 (risk stated)
 - s22: 3
 - s23: 3
 - s24: 2
@@ -144,42 +163,56 @@ No cycles, no forward references among declared dependencies. La correction `s12
 
 No 5, all 4s state their risk. La règle d'or (4 = risk stated, 5 = must split) est respectée.
 
-Note sur s11b (complexity 3) : la story couvre page + fetch SSE + ReadableStream + chatStore Zustand + 13 ACs + 5+ tests e2e. C'est consistant avec s11a (scaffold from zero) qui est aussi à 3. Pas un finding.
-
 ## 7. ID format & uniqueness
 
-Format `s<number>-<slug>` partout. Suffixes valides : s06b, s13b, s18b. Pas de doublon, pas de régression. L'ancien id `s12b` n'apparaît plus qu'en référence historique (l. 474, 533, 960 — toutes marquées « anciennement numérotée s12b »). Conforme à la review précédente.
+Format `s<number>-<slug>` partout. Suffixes valides : s06b, s13b, s18b, s11a, s11b, s11c. Pas de doublon, pas de régression. L'ancien id `s12b` n'apparaît qu'en référence historique (l. 1238). Conforme à la review précédente.
 
-## 8. s11b / s11c focus
+## 8. s11c focus (suite à l'étoffement)
 
-**s11b est shippable-ready** :
-- 13 ACs, chacune testable, chacune ancrée à un comportement observable (DOM, attribut ARIA, requête HTTP, message inline, test e2e).
-- Dépendances vérifiées par commit hash (`c3f1829`, `c5f6163`, `ff21046`).
-- Agentic notes très complètes : 5 pièges documentés (SSE buffering Next.js, EventSource vs fetch ADR 006, tokens vides en début de stream, prefers-reduced-motion, lien désactivé dans header), 3 open questions tranchées, out-of-scope explicite.
-- Le commentaire de tête de `chatStore.ts` exigé par AC13 verrouille le couplage au contrat s09.
+**s11c est shippable-ready** (commit `82850cb`) :
+- 16 ACs, chacune testable, chacune ancrée à un comportement observable (DOM, attribut ARIA, requête HTTP multipart, code backend, message inline, test e2e).
+- Dépendances vérifiées par commit hash (`c3f1829`, `ff21046`).
+- Agentic notes très complètes : 12 pièges documentés (axios `Content-Type` boundary, drag & drop event preventDefault, iOS Safari limitations, MANUAL_REVIEW discriminator, `Intl.NumberFormat` digits, etc.), 4 open questions tranchées, out-of-scope explicite.
+- Le commentaire de tête de `uploadStore.ts` exigé par AC17 verrouille le couplage au contrat s10.
 
-**s11c est un stub assumé** :
-- 3 ACs au niveau résumé, marqués « (résumé) ».
-- Le trio s11a (shipped) / s11b (fleshed out) / s11c (stub) reste cohérent (chaque story est un slice disjoint de l'ancien s11), mais s11c n'est pas prêt à être planifié tant qu'il n'a pas été étoffé.
-- Le stub ne casse pas la breakdown, mais il est *insuffisant* pour la phase `/ks-research` (rien à researcher sur 3 lignes).
+**Contraste axios/fetch vs s11b explicitement documenté** :
+- s11c Constraint (l. 568) : « **PAS de `fetch` direct** ici — c'est l'inverse de s11b (qui utilise `fetch` parce qu'axios bufferise les streams SSE). »
+- s11c Trap #1 (l. 579) : « `Content-Type: multipart/form-data` ne doit PAS être mis manuellement. Si axios voit un `Content-Type` explicite avec `FormData`, il n'ajoute pas le `boundary` et le backend rejette. »
+
+**Drift design `.doc` flaggé** :
+- AC2 (l. 540) : « Pas de `.doc` ni `.docx` dans `accept` (le PRD backend ne les accepte pas). »
+- Out-of-scope (l. 608) : « Correction du drift design `.doc` → design-system / designs/s11-frontend-upload-chat.md suggère « PDF, DOC, image » mais le backend n'accepte que `.pdf, .png, .jpg, .jpeg, .txt`. À corriger dans une future itération du design. »
 
 ## Findings
 
-### minor — s11c — Story stub, 3 ACs non testables
+### minor — s11b — Wording « axios » dans AC3 contredit les agentic notes (carry-over)
 
-Fichier `docs/stories.md` lignes 527-541. La story est un placeholder de 3 ACs (« sélection de fichier, choix de matière, soumission. Succès → confirmation. Erreur → message clair. »). Ces ACs sont au niveau résumé, pas au niveau testable. Le trio s11a (shipped) / s11b (fleshed out) / s11c (stub) reste cohérent, mais s11c ne peut pas passer en `/ks-research`/`/ks-plan`/`/ks-execute` tant qu'il n'a pas été étoffé en suivant le même niveau de détail que s11b (ACs observables, dépendances, agentic notes avec pièges documentés). **Recommandation** : étoffer s11c dans un commit dédié avant de planifier, en s'inspirant du niveau de détail de s11b (drag & drop + caméra mobile, axios vs fetch, multi-tenant, e2e).
+`docs/stories.md` ligne 473. L'AC dit : « le client appelle `POST {NEXT_PUBLIC_API_URL}/api/chat/stream` (axios, `Accept: text/event-stream`, `Content-Type: application/json`) ». Les agentic notes (ligne 498) disent explicitement : « Axios ne gère PAS le streaming nativement : ne PAS utiliser `apiClient.post(...)` pour le stream (axios bufferise par défaut). Faire un `fetch` direct dans `chatStore.send` ». Le mot « axios » dans l'AC donne la direction opposée à la directive d'implémentation. **Recommandation** : remplacer « axios » par « HTTP » (ou « `fetch` direct ») dans l'AC, en déplaçant la justification dans la rationale. (Carry-over de la review précédente — toujours pending.)
 
-### minor — s11b — Incohérence interne « axios » vs « fetch »
+### minor — s08 — Synthèse omet `partial_attempt_2` (carry-over)
 
-AC3 (l. 473) : « le client appelle `POST {NEXT_PUBLIC_API_URL}/api/chat/stream` (axios, `Accept: text/event-stream`, `Content-Type: application/json`) ». Mais l'Agentic notes « Constraints » (l. 498) dit explicitement : « Axios ne gère PAS le streaming nativement : ne PAS utiliser `apiClient.post(...)` pour le stream (axios bufferise par défaut). Faire un `fetch` direct dans `chatStore.send` ». Le mot « axios » dans l'AC contredit la directive d'implémentation. **Recommandation** : remplacer « axios » par « HTTP » (ou « `fetch` direct ») dans l'AC, et déplacer la justification dans la rationale.
+`docs/stories.md` ligne 311. Les 4 ACs individuelles (l. 307-310) définissent : `partial` (échec tentative 1), `partial_attempt_2` (échec tentative 2), `full_after_attempts` (échec tentative 3), `full` (succès). Mais l'AC de synthèse « The state machine is deterministic » (l. 311) dit « failure on attempt 1 or 2 → `partial` » — ce qui omet `partial_attempt_2` et contredit l'AC précédente. **Recommandation** : réécrire la ligne de synthèse pour refléter les 4 niveaux (« success → `full`; échec t1 → `partial`; échec t2 → `partial_attempt_2`; échec t3 → `full_after_attempts` »). (Carry-over de la review précédente — toujours pending.)
 
-### minor — s08 — Incohérence interne des niveaux de correction
+### minor — s21, s22, s26 — Dépendance « s11 » obsolète (carry-over)
 
-ACs (l. 307-310) introduisent 4 niveaux : `partial` (tentative 1 échouée), `partial_attempt_2` (tentative 2 échouée), `full_after_attempts` (tentative 3 échouée), `full` (succès). Mais l'AC de synthèse « The state machine is deterministic » (l. 311) dit « failure on attempt 1 or 2 → `partial` » — ce qui omet `partial_attempt_2` et contredit l'AC précédente. **Recommandation** : mettre à jour la phrase de synthèse pour refléter les 4 niveaux (partial → partial_attempt_2 → full_after_attempts, et success → full).
+`docs/stories.md` lignes 1015, 1049, 1181 (zones s21 / s22 / s26). La dépendance est écrite « s11 (frontend chat page exists) » ou similaire. L'id « s11 » est obsolète : il a été splitté en s11a (shipped `c3f1829`) + s11b (fleshed out) + s11c (fleshed out). **Recommandation** : remplacer « s11 » par les sous-ids explicites dans chaque ligne de dépendance (s21 → s11b, s22 → s11b + s11c, s26 → s11b + s11c + s19). (Carry-over de la review précédente — toujours pending.)
 
-### minor — s21 — Dépendance « s11 » ambiguë
+### minor — s11c — Trap #6 redondant avec AC4 (nouveau, finding de cette review)
 
-Dépendance déclarée (l. 753) : « s11 (frontend chat page exists) ». Le « s11 » est aujourd'hui splitté en s11a/s11b/s11c. Le sens pratique est « s11b shippé » (la page `/chat` est le sujet de la dépendance), mais l'ID utilisé est l'ancien. **Recommandation** : clarifier en « s11b-frontend-chat » (et possiblement ajouter s11c si la consolidation i18n doit aussi toucher la page upload).
+`docs/stories.md` ligne 584. Le trap `Intl.NumberFormat` maximumFractionDigits est déjà enforced par AC4 (« taille formatée en MB via `Intl.NumberFormat(locale, {maximumFractionDigits: 1})` »). Le trap est un rappel utile mais duplique l'AC. C'est une redondance de documentation, pas un défaut de breakdown. (Non-bloquant, signalement pour l'implémenteur : ne pas s'étonner du doublon.)
+
+### minor — s11c — AC2 mélange 3 comportements de sélection (nouveau, finding de cette review)
+
+`docs/stories.md` ligne 540. AC2 bunddle 3 comportements indépendants (click picker via `<label htmlFor>`, drag & drop via `onDragOver`+`onDrop`, mobile camera via `capture="environment"`) dans une seule AC. Chaque comportement est testable séparément mais le wording « supports » rend ambigu lequel échoue en cas d'échec. **Recommandation** : splitter en AC2a (click picker), AC2b (drag & drop), AC2c (mobile camera capture). (Préférence de granularité, pas un défaut — peut être laissé tel quel en planification, où chaque sous-comportement deviendra une sous-tâche.)
+
+## Statut des 4 findings de la review précédente
+
+| # | Finding (review `fd6cc41`) | Statut |
+|---|---|---|
+| 1 | s11c stub (3 ACs non testables) | **FIXED** dans `82850cb` (16 ACs fleshed out) |
+| 2 | s11b wording « axios » vs « fetch » | **STILL PENDING** (re-flaggé dans cette review) |
+| 3 | s08 synthèse omet `partial_attempt_2` | **STILL PENDING** (re-flaggé dans cette review) |
+| 4 | s21 dépendance « s11 » ambiguë | **STILL PENDING** (re-flaggé dans cette review ; s22 et s26 partagent le même problème) |
 
 ## Verdict
 
@@ -188,18 +221,16 @@ Stories ready: yes
 
 ---
 
-## Note finale sur la cohérence s11a/s11b/s11c
+## Note finale sur la cohérence s11a / s11b / s11c
 
-Le trio s11a (scaffold, shipped) / s11b (chat, fleshed out) / s11c (upload, stub) est **structurellement cohérent** : chaque story est un slice disjoint de l'ancien s11, et l'ordre d'exécution s11a → s11b / s11c est explicité dans les notes de chaque story. Le stub s11c n'introduit pas de gap silencieux dans la breakdown — il est reconnu comme tel et attend son étoffement.
+Le trio s11a (scaffold, shipped `c3f1829`) / s11b (chat, fleshed out) / s11c (upload, fleshed out `82850cb`) est **structurellement complet** : chaque story est un slice disjoint de l'ancien s11, et l'ordre d'exécution s11a → s11b / s11c est explicité dans les notes de chaque story.
 
-s11b est shippable-ready au sens « la prochaine étape est `/ks-research` puis `/ks-plan` » : ses ACs sont vérifiables, ses dépendances sont mergées et vérifiées par hash, ses pièges sont documentés, et ses out-of-scope sont explicites (persistance historique → s19, bouton Stop → s22, streaming JWT → trivial refacto en s15).
+s11c atteint le même niveau de détail que s11b : 16 ACs vérifiables, dépendances mergées vérifiées par hash, 12 pièges documentés, contraste axios/fetch avec s11b explicitement callé, drift `.doc` avec le design flaggé, les 8 états UI du contrat s10 mappés. Le finding #1 de la review précédente est entièrement résolu.
 
-s11c n'est *pas* shippable-ready et ne doit pas être planifié tant qu'il n'est pas étoffé. C'est un point de vigilance à noter pour la suite, pas un blocage de la breakdown actuelle.
-
-Les 4 findings minor identifiés (s11c stub, s11b axios/fetch, s08 partial/partial_attempt_2, s21 dépendance ambiguë) sont traitables dans des commits dédiés sans bloquer le pipeline en aval. Aucun n'est bloquant pour passer en `/ks-architect` (s11b peut être planifié en parallèle de l'étoffement de s11c).
+Les 5 findings minor de cette review (3 carry-overs de la review précédente + 2 nouveaux sur s11c) sont tous traitables dans des commits dédiés sans bloquer le pipeline en aval. Aucun n'est bloquant pour passer en `/ks-architect` (s11b et s11c peuvent être planifiés en parallèle de la correction de ces findings).
 
 Fichiers consultés :
 - `docs/prd.md`
 - `docs/stories.md`
-- `docs/reviews/stories.md` (review précédente, pour réutilisation des conventions)
+- `docs/reviews/stories.md` (reviews précédentes, pour réutilisation des conventions)
 - `templates/stories-review-checklist.md`
