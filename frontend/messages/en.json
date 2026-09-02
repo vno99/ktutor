@@ -21,7 +21,31 @@
     "navUpload": "Upload",
     "avatarAlt": "{pseudo}'s avatar"
   },
-  "chat": {},
+  "chat": {
+    "title": "Chat with an agent",
+    "subjectLabel": "Subject",
+    "subjectMaths": "Mathematics",
+    "subjectFrancais": "French",
+    "questionLabel": "Your question",
+    "questionPlaceholder": "Ask a question about your course…",
+    "send": "Send",
+    "sourcesLabel": "Sources:",
+    "sourcesMore": "… and {n} more",
+    "emptyState": "Ask your agent a question.",
+    "pseudoMissing": "Choose a pseudo to start.",
+    "retry": "Retry",
+    "charCountRemaining": "{n} characters left",
+    "examplesTitle": "Examples:",
+    "exampleMaths": "What is a derivative?",
+    "exampleFrancais": "Past participle rule with avoir?"
+  },
   "upload": {},
-  "errors": {}
+  "errors": {
+    "network": "Network error. Check your connection.",
+    "lost": "Connection lost. Retry?",
+    "cross_tenant": "This question belongs to another student.",
+    "no_subject": "Unknown subject. Choose \"Mathematics\" or \"French\".",
+    "invalid_pseudo": "Invalid pseudo. 3 to 32 characters (letters, digits, underscore).",
+    "unknown": "Something went wrong. Try again later."
+  }
 }

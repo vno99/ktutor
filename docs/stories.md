@@ -458,36 +458,154 @@
 
 ### Story s11b-frontend-chat — Page /chat avec streaming SSE (split 2/3, gated by s11a)
 
-> Dépend de s11a. Sera planifiée et implémentée sur la branche `feature/s11b-frontend-chat` après le merge de s11a.
-
 **As an** élève **I want** chatter avec l'agent depuis l'interface web **so that** je voie la réponse s'afficher mot par mot.
+
+> **Dépend de s11a (merged, `c3f1829`)**. Sera planifiée et implémentée sur la branche `feature/s11b-frontend-chat`. Sibling story : s11c-frontend-upload (l'upload arrive séparément).
 
 ### Complexity
 
-**3** — Page `/chat` + SSE consumer via `fetch` + `ReadableStream` + `chatStore` Zustand.
+**3** — Page `/chat` + SSE consumer via `fetch` + `ReadableStream` + `chatStore` Zustand + couplage à l'API s09 mergée (`POST /api/chat/stream`).
 
-### Acceptance criteria (résumé)
+### Acceptance criteria
 
-- [ ] Page `/chat` : question + matière + réponse streamée en temps réel.
-- [ ] La page lit le flux SSE et ajoute les chunks à mesure.
-- [ ] Les 5 tests e2e chat passent (Playwright + `page.route` stub SSE).
-- [ ] axe-core : 0 violation critique sur `/fr/chat`.
+- [ ] La page `/{locale}/chat` (locales `fr` par défaut, `en`) rend un sélecteur de matière (`maths` | `francais`), un champ question (`<textarea>`, 1-2000 chars), un bouton « Envoyer » (44×44 px touch target), et une zone de réponse — tous les libellés via `useTranslations('chat')`, jamais en dur.
+- [ ] Le bouton « Envoyer » est désactivé tant que : pas de pseudo valide (cookie `pseudo`, regex `^[a-zA-Z0-9_]{3,32}$`), pas de matière sélectionnée, pas de question non vide. L'état de désactivation est annoncé aux lecteurs d'écran (`aria-disabled="true"` + `tabindex="-1"`), pas juste `disabled` (cf. design-system l.228).
+- [ ] À l'envoi, le client appelle `POST {NEXT_PUBLIC_API_URL}/api/chat/stream` (axios, `Accept: text/event-stream`, `Content-Type: application/json`) avec le body `{ pseudo, subject, question }`. Le `pseudo` est lu depuis le cookie via `useAuthStore`, jamais tapé dans l'URL ni dans le state.
+- [ ] La réponse est lue via `fetch().body.getReader()` (PAS `EventSource` — voir Piège #2 recherche + ADR 006) et chaque chunk SSE est parsé ligne par ligne : tout préfixe `data: ` est JSON-decodé, un `data:` vide est ignoré, un chunk vide est ignoré. Trois formes reconnues et gérées : `{token: "..."}` → append au buffer assistant ; `{done: true, sources: [{filename, chunk_index}, ...]}` → termine le stream, affiche la ligne « Sources : ... » ; `{error, code}` → affiche un message inline mappé sur `code` (`cross_tenant` / `no_subject` / `invalid_pseudo` / `unknown`).
+- [ ] La zone de réponse utilise `<StreamingMessage>` (déjà squelette en s11a) : `role="log"`, `aria-live="polite"`, `aria-busy={isStreaming}`. Tant que `isStreaming && !hasContent`, le typing indicator 3 points (déjà implémenté) s'affiche. Dès qu'un token arrive, les points disparaissent et les tokens s'accumulent en `text-base text-text-primary`.
+- [ ] Une **erreur 4xx/5xx du endpoint** (ex. : backend down, CORS, timeout) affiche un message inline « Erreur réseau. Vérifie ta connexion. » avec un bouton « Réessayer » qui re-déclenche la dernière requête. Une **connexion coupée avant `done`** affiche « Connexion perdue. Réessayer ? » avec le même bouton. Pas de toast, pas d'`alert()`.
+- [ ] Un **pseudo manquant ou invalide** (cookie vide / regex échouée) affiche au-dessus de la zone de stream le label « Choisis un pseudo pour commencer » et met l'input pseudo du header en `aria-invalid="true"`. Le bouton « Envoyer » est désactivé.
+- [ ] Le `chatStore` Zustand (`frontend/lib/stores/chatStore.ts`) gère l'état : `{ messages: Array<{role: 'user' | 'assistant', content: string, sources?: SourceCitation[] | null, error?: ChatStreamError | null}>, isStreaming: boolean, lastQuestion: string | null, send: (input) => Promise<void>, retry: () => Promise<void>, reset: () => void }`. Le store est hydraté client-side (`hydrate()` après mount, comme `authStore`).
+- [ ] La page est responsive : à 360px (smartphone) la textarea + bouton sont full-width et le `<Header>` masque les liens Chat/Upload desktop (la bottom tab bar les montre) ; à 768px (tablette) la page est en `max-w-3xl mx-auto` et les liens desktop du header sont visibles (bottom tab bar masquée). Pas de scroll horizontal aux deux viewports.
+- [ ] Axe-core (Playwright + `@axe-core/playwright`) : 0 violation `critical` ni `serious` sur `/fr/chat` ET `/en/chat`. Lighthouse Accessibility ≥ 90 sur `/fr/chat` (assertion CI).
+- [ ] Tests e2e Playwright dans `frontend/e2e/chat.spec.ts` (≥ 5 tests) couvrent : (a) la page rend avec tous les contrôles et les bons `htmlFor` ; (b) une réponse stubbée via `page.route('**/api/chat/stream', ...)` apparaît token par token dans la zone (`page.route` stub un flux SSE `text/event-stream` valide, 2-3 `data: {token: ...}` puis `data: {done: true, sources: [...]}`) ; (c) un flux SSE se terminant par `{error, code: "unknown"}` affiche le message inline rouge et un bouton Réessayer ; (d) la page est navigable au clavier (Tab atteint la textarea, le sélecteur, le bouton Envoyer) ; (e) le toggle FR/EN bascule toute l'UI chat en anglais.
+- [ ] `bash frontend/scripts/check-i18n.sh` exit 0 (aucune chaîne UI en dur dans la page chat, les composants, ou le store). `pnpm run lint` + `pnpm run typecheck` + `pnpm run build` exit 0. `pnpm exec playwright test` exit 0 (les 11 tests s11a + les ≥ 5 tests s11b verts).
+- [ ] Documentation de l'API consommée : un commentaire en tête de `frontend/lib/stores/chatStore.ts` référence le contrat s09 (`backend/app/api/chat/router.py:64-133`, `backend/app/api/chat/sse.py:21-30`, `backend/app/api/chat/schemas.py:34-77`) et explique les 3 formes d'event SSE consommées.
+
+### Dependencies
+
+- **s11a-frontend-bootstrap merged ✅** (vérifié : `c3f1829` contient le squash s11a). Sans s11a, pas de `<StreamingMessage>`, pas de `<Header>` sticky, pas de `authStore` cookie-backed, pas de design system, pas de `next-intl`.
+- **s09-api-chat-streaming merged ✅** (vérifié : `c5f6163`). Contrat exact consommé par cette story — voir le commentaire d'AC sur `chatStore.ts`.
+- **s10-api-upload merged ✅** (vérifié : `ff21046`) — uniquement pour le fait que le store axios est déjà instancié dans `frontend/lib/api.ts`. s11b ne consomme PAS `/api/documents/upload` (c'est s11c).
+
+### Agentic notes
+
+- **Files involved** (nouveaux) : `frontend/app/(public)/[locale]/chat/page.tsx`, `frontend/lib/stores/chatStore.ts`, `frontend/lib/api/chat.ts` (helper de parsing SSE, isolation de la logique pure pour les tests unitaires futurs), `frontend/e2e/chat.spec.ts`.
+- **Files involved** (modifiés) : `frontend/messages/fr.json` + `frontend/messages/en.json` (ajout namespace `chat` : titre, sous-titre, sélecteur matière, placeholder textarea, bouton Envoyer, label exemples, label Sources, message erreur réseau, message connexion perdue, message pseudo manquant, message erreur code-mappée), `frontend/components/StreamingMessage.tsx` (la version squelette de s11a est branchée au vrai state — props `error?: ChatStreamError | null` et `sources?: SourceCitation[] | null` ajoutées), `frontend/components/Header.tsx` (le lien `/chat` n'est plus `aria-disabled` — c'est une vraie route maintenant ; idem `/upload` reste désactivé en attendant s11c, gap explicite).
+- **Constraints** (cf. `AGENTS.md` § Frontend + `CLAUDE.md` § i18n/a11y) :
+  - **PAS d'`EventSource`** pour consommer le SSE — utiliser `fetch().body.getReader()`. Raison : `EventSource` force le type MIME `text/event-stream` et ne permet pas de customiser la requête (impossible d'envoyer un `Content-Type: application/json` proprement, et le re-fit de `Authorization: Bearer` en s15 ne passera pas). ADR 006 verrouille ce choix.
+  - **PAS de hardcoded strings** : tout via `useTranslations('chat')`. `bash scripts/check-i18n.sh` doit exit 0.
+  - **Axios ne gère PAS le streaming nativement** : ne PAS utiliser `apiClient.post(...)` pour le stream (axios bufferise par défaut). Faire un `fetch` direct dans `chatStore.send`, et garder `apiClient` pour les futurs endpoints non-streaming (s11c upload).
+  - **i18n EN/FR complet** : le namespace `chat` doit couvrir les 2 langues. Le test Playwright (e) vérifie le toggle.
+  - **A11y** : `aria-live="polite"` sur la zone de stream (déjà câblé dans `<StreamingMessage>`), `aria-busy` dynamique, focus visible (déjà dans le design system), `prefers-reduced-motion` désactive l'animation des 3 points.
+  - **Multi-tenancy** : le `pseudo` est lu depuis le store (cookie-backed en s11a, JWT en s15). Ne JAMAIS hardcoder un pseudo côté client, ne JAMAIS l'extraire du body de la requête autrement que via `useAuthStore.getState().pseudo`.
+  - **CI** : le job `frontend` doit rester vert ; les étapes Playwright / Lighthouse / check-i18n s'appliquent automatiquement. Lighthouse audite `/fr/chat` en plus de `/fr/` (étendre `lighthouserc.json.urls`).
+- **Traps** (recherche s11 Pièges #1-#14 + retours de s11a) :
+  - **Piège #2** (P0) : `EventSource` vs `fetch` → utiliser `fetch().body.getReader()`, documenter pourquoi dans le commentaire de `chatStore.send`.
+  - **Piège #3** (P0) : le dev server Next.js peut bufferiser le SSE ; en dev, le `next.config.ts` doit avoir `reactStrictMode: true` et le `next dev` doit passer `X-Accel-Buffering: no` (déjà côté backend). Côté frontend, s'assurer qu'on ne bufferise pas côté JS (pas de `await response.text()`).
+  - **Piège #6** (P1) : les tokens vides en début de stream (certains LLMs émettent un chunk de tool-call metadata) — l'API s09 router filtre les tokens vides (`event.event == "token"` et ignore les `event.content` vides) ; le frontend doit quand même gérer un `{token: ""}` sans crash (concat no-op).
+  - **Piège #7** (P1) : `prefers-reduced-motion` doit être respecté pour le typing indicator. Le `animate-pulse` Tailwind est réduit par défaut dans Tailwind 4 si le user a activé `prefers-reduced-motion` (`motion-reduce:animate-none` à ajouter sur les 3 points).
+  - **Piège #8** (P0) : le toggle FR/EN doit persister via le cookie next-intl (déjà géré par le middleware s11a). Le test Playwright (e) recharge après toggle pour vérifier.
+  - **Piège #11** (P0) : NE PAS utiliser de `<div onClick>` pour la drop zone ou le bouton « Réessayer » — toujours un vrai `<button>` focusable.
+  - **Retour s11a Minor #1** : les liens désactivés doivent avoir `aria-disabled="true"` ET `tabindex="-1"` ET ne pas être des `<Link>` quand désactivés (utiliser un `<span>` stylé ou un `<button disabled>`). Le lien `/chat` du header n'est plus désactivé en s11b, mais `/upload` reste désactivé tant que s11c n'est pas mergé.
+  - **Retour s11a Minor #2** : `<html lang>` est hardcodé à `fr` en s11a — pas un blocker pour s11b, mais le test Lighthouse `/en/chat` va peut-être chuter. À noter dans les gaps de la review s11b (suivi s22 ou s11c).
+  - **Retour s11a Minor #3** : `output: "standalone"` omis (EPERM Windows), pas un blocker. Suivi s11b si Lighthouse en prod demande la refacto.
+  - **Trap spécifique SSE** : la réponse peut être coupée par une erreur de proxy (ngrok, Cloudflare) — le handler fetch doit détecter `reader.closed` et afficher le message « Connexion perdue ». Le test (c) ne couvre QUE l'erreur explicite `{error, code}` ; un test manuel ou un mock `page.route` qui interrompt la connexion couvre le cas « connexion perdue ». Si trop complexe, gap à noter pour la review.
+  - **Trap specific axios** : `apiClient` est utilisé pour `/api/documents/upload` en s11c, mais PAS pour le stream chat. Documenter dans `frontend/lib/api.ts` pourquoi le stream fait un `fetch` direct.
+- **Open questions** (à trancher en `ks-research` ou dans la PR) :
+  - **Q1** : faut-il un bouton « Stop » pour interrompre un stream en cours ? L'AC7 original du story mentionne ce bouton mais l'AC actuel de s11b ne l'inclut pas (cf. design-system § 10 gaps : « ajouté dans une story ultérieure »). Décision : **hors-scope s11b**, gap à noter dans la review, suivi s22.
+  - **Q2** : faut-il afficher le contenu de la réponse précédente quand l'utilisateur pose une nouvelle question (i.e. garder l'historique de la conversation en mémoire) ? L'AC1 demande « question + matière + réponse streamée » (singulier) ; le design § 4.4 parle d'un « flux vertical » (implicite : cumulatif). Décision : **cumulatif en mémoire du store**, persistance en s19. Pas d'historique côté backend en s11b.
+  - **Q3** : pour le test Playwright (b), comment stubber proprement un SSE ? `page.route` accepte-t-il de retourner un `text/event-stream` avec un body lu depuis un fixture ? Réponse : oui, `page.route` peut retourner `new Response(readableStream, { headers: { 'Content-Type': 'text/event-stream' } })`. Référence : doc Playwright sur `page.route` + `Response.body`. À vérifier en Research.
+- **Out-of-scope** (à NE PAS implémenter en s11b, gaps explicites pour la review) :
+  - Persistance de l'historique de conversation côté backend → **s19** (`/chat/history`).
+  - Bouton « Stop » sur le stream → **s22** (a11y/UX pass) ou s11b' si on l'inclut.
+  - Bouton « Régénérer la réponse » → non prévu dans le PRD actuel.
+  - Streaming depuis l'API corrigée s15 (JWT, multi-tenant strict) → trivial refacto du `send` une fois `useAuthStore.pseudo` branché sur le JWT, mais hors-scope ici.
+  - Affichage des chunks par paragraphe (recherche D7) → RAG actuel retourne un seul stream, pas de paragraph-level chunking → out-of-scope.
+  - `<html lang>` dynamique → s22 ou s11c.
 
 ### Story s11c-frontend-upload — Page /upload avec drag & drop (split 3/3, gated by s11a)
 
-> Dépend de s11a. Sera planifiée et implémentée sur la branche `feature/s11c-frontend-upload` après le merge de s11a.
+> **Dépend de s11a (merged, `c3f1829`)**. Sibling : s11b-frontend-chat (parallel branch). Sera planifiée et implémentée sur la branche `feature/s11c-frontend-upload` après merge de s11a.
 
 **As an** élève **I want** uploader un document depuis l'interface web **so that** il soit indexé dans mon RAG.
 
 ### Complexity
 
-**2** — Page `/upload` + `<FileUpload>` complet (drag & drop + caméra mobile) + axios upload.
+**2** — Page `/upload` + `<FileUpload>` complet (drag & drop + caméra mobile `capture`) + axios multipart upload + carte résultat selon `code` HTTP. Pas d'OCR côté frontend, pas d'upload multiple, pas de barre de progression réelle (cf. Piège recherche s11 : impossible de suivre la progression multipart côté navigateur sans `XMLHttpRequest` ou `fetch` streams ; en s11c on utilise axios et on attend la réponse 201).
 
-### Acceptance criteria (résumé)
+### Acceptance criteria
 
-- [ ] Page `/upload` : sélection de fichier, choix de matière, soumission. Succès → confirmation. Erreur → message clair.
-- [ ] Les 3 tests e2e upload passent (succès, 413, 415).
-- [ ] axe-core : 0 violation critique sur `/fr/upload`.
+- [ ] La page `/{locale}/upload` (locales `fr` par défaut, `en`) rend un sélecteur de matière (`maths` | `francais`), un `<FileUpload>`, et un bouton « Envoyer » (44×44 px touch target). Tous les libellés via `useTranslations('upload')`, jamais en dur.
+- [ ] Le composant `<FileUpload>` (déjà squelette en s11a, à étendre) supporte : (a) clic → ouvre le picker natif via le `<label htmlFor>` (déjà câblé) ; (b) **drag & drop** sur la drop zone (`onDragOver` + `onDrop` handlers, `e.preventDefault()` pour autoriser le drop, lecture via `e.dataTransfer.files[0]`) ; (c) **caméra mobile** via l'attribut `capture="environment"` sur un second input `<input type="file" accept="image/*" capture="environment">` masqué, déclenché par un bouton « Prendre une photo » visible uniquement sur viewport ≤ 768px (cf. design § 4.6). L'attribut `accept` du picker principal est `".pdf,.png,.jpg,.jpeg,.txt"` (aligné sur `ALLOWED_EXTENSIONS` backend : `backend/app/services/rag/upload_service.py:39`). Pas de `.doc` ni `.docx` dans `accept` (le PRD backend ne les accepte pas).
+- [ ] Pendant un drag (`onDragOver`), la drop zone change d'apparence : `border-primary bg-primary/5` (design § 5.2). Pendant un drop (`onDrop`), l'event `dragover` est prévenue, le fichier est lu depuis `dataTransfer.files[0]`, et la drop zone revient à son état initial si le drop est hors zone (`onDragLeave`).
+- [ ] Une fois un fichier sélectionné (par n'importe quel moyen), la drop zone se transforme en `<Card>` avec : icône Lucide `file-text` (PDF) ou `file-image` (PNG/JPG/JPEG) ou `file` (TXT), nom du fichier, taille formatée en MB via `Intl.NumberFormat(locale, {maximumFractionDigits: 1})`, et un bouton « Retirer » (`<Button>` ghost, icône `x` Lucide, `aria-label="Retirer le fichier"`).
+- [ ] Le bouton « Envoyer » est désactivé tant que : pas de pseudo valide (cookie `pseudo`, regex `^[a-zA-Z0-9_]{3,32}$`), pas de matière sélectionnée, pas de fichier sélectionné. État annoncé : `aria-disabled="true"` + `tabindex="-1"`, pas juste `disabled` (cf. design-system l.228).
+- [ ] À l'envoi, le client appelle `POST {NEXT_PUBLIC_API_URL}/api/documents/upload` (axios via `apiClient`, `Content-Type: multipart/form-data`) avec un `FormData` contenant exactement 3 champs : `pseudo` (depuis `useAuthStore.getState().pseudo`), `subject` (depuis le `<Select>`), `file` (le `File` sélectionné). L'axios interceptor de base envoie déjà `Accept: application/json` (cf. `frontend/lib/api.ts:21`).
+- [ ] Pendant l'envoi, le bouton « Envoyer » affiche un spinner Tailwind + texte « Envoi en cours… » et reste désactivé. La drop zone est désactivée (pas de re-sélection, pas de drag & drop). Une fois la réponse reçue (succès ou erreur), l'UI revient interactive.
+- [ ] **Cas succès (HTTP 201)** : la réponse `{document_id, status, chunks_count, ocr_confidence}` est lue. Si `status === "indexed"` → `<Card>` `bg-success/10 border border-success/30`, icône `check-circle`, texte « Document indexé : `nom.pdf` (12 chunks) ». Si `status === "manual_review_needed"` (et `chunks_count === 0`) → `<Card>` `bg-warning/10 border border-warning/30`, icône `alert-circle`, texte « Document enregistré, mais l'OCR est peu fiable. Un adulte doit le vérifier. » Dans les deux cas, un bouton « Uploader un autre document » remet la page à l'état initial (clear file, keep subject, keep pseudo).
+- [ ] **Cas erreur (HTTP 4xx/5xx)** : la réponse `{error, code}` est lue. Mapping UI : (a) HTTP 413 → message « Fichier trop volumineux (max 20 MB) » (reprise de `data-max-size={20}` injecté par `<FileUpload>`) + bouton « Réessayer » qui ré-émet la dernière requête ; (b) HTTP 415 → message « Extension non supportée. Formats acceptés : PDF, image, texte. » + bouton « Réessayer » (le re-tentative ré-ouvre le picker car le fichier est invalide) ; (c) HTTP 422 avec `code === "invalid_pseudo"` → message « Pseudo invalide. Recharge la page. » (état rare : cookie corrompu) ; (d) HTTP 422 avec `code === "ocr_failure"` → message « Échec de l'OCR. Le fichier est trop dégradé pour être lu. » (le re-tentative est inutile) ; (e) HTTP 500 avec `code === "storage_failure"` → message « Erreur serveur. Réessaie dans quelques minutes. » + bouton « Réessayer ». Toutes les cards d'erreur sont `bg-error/10 border border-error/30`, icône `alert-triangle`, et affichent le `code` en `text-xs text-text-tertiary` sous le message (utile pour le debug).
+- [ ] **Cas erreur réseau** (`apiClient.post` rejette avant la réponse HTTP) : message inline « Erreur réseau. Vérifie ta connexion. » + bouton « Réessayer ». Même style que les erreurs 5xx.
+- [ ] **Cas aucun pseudo** (cookie vide) : la page affiche au-dessus de la `<FileUpload>` le label « Choisis un pseudo pour commencer » (couleur `text-warning`), et l'input pseudo du header est mis en `aria-invalid="true"`. Le bouton « Envoyer » est désactivé.
+- [ ] Le `uploadStore` Zustand (`frontend/lib/stores/uploadStore.ts`) gère l'état : `{ selectedFile: File | null, subject: Subject | null, isUploading: boolean, lastResponse: UploadResponse | null, lastError: UploadErrorResponse | null, selectFile: (f) => void, clearFile: () => void, upload: () => Promise<void>, retry: () => Promise<void>, reset: () => void }`. Le store est hydraté client-side (comme `authStore` et `chatStore`).
+- [ ] La page est responsive : à 360px (smartphone) la drop zone + bouton « Envoyer » sont full-width, le bouton « Prendre une photo » est visible (≤ 768px), les liens desktop du header sont masqués (bottom tab bar les montre) ; à 768px (tablette) la page est en `max-w-2xl mx-auto`, le bouton « Prendre une photo » est masqué (le picker capture se fait via l'attribut `capture` du picker principal, ou via le seul bouton « Choisir un fichier »). Pas de scroll horizontal aux deux viewports.
+- [ ] Axe-core (Playwright + `@axe-core/playwright`) : 0 violation `critical` ni `serious` sur `/fr/upload` ET `/en/upload`. Lighthouse Accessibility ≥ 90 sur `/fr/upload` (assertion CI).
+- [ ] Tests e2e Playwright dans `frontend/e2e/upload.spec.ts` (≥ 4 tests) couvrent : (a) la page rend avec tous les contrôles et les bons `htmlFor`, le bouton Envoyer est désactivé sans fichier ; (b) un upload stubbé via `page.route('**/api/documents/upload', ...)` qui répond `201 {document_id, status: "indexed", chunks_count: 12, ocr_confidence: null}` affiche la card succès avec le bon nombre de chunks et le bouton « Uploader un autre » ; (c) un upload stubbé qui répond `413 {error, code: "invalid_file"}` affiche la card erreur 413 avec le bouton « Réessayer » et le bon message ; (d) un upload stubbé qui répond `415 {error, code: "invalid_file"}` affiche la card erreur 415 ; (e, optionnel mais recommandé) un upload stubbé qui répond `201 {status: "manual_review_needed", chunks_count: 0}` affiche la card warning OCR. Le test (b) vérifie aussi que le payload `FormData` envoyé contient exactement les 3 champs `pseudo` / `subject` / `file` (Playwright `page.route` request body inspection).
+- [ ] `bash frontend/scripts/check-i18n.sh` exit 0 (aucune chaîne UI en dur dans la page upload, les composants, ou le store). `pnpm run lint` + `pnpm run typecheck` + `pnpm run build` exit 0. `pnpm exec playwright test` exit 0 (les 11 tests s11a + les ≥ 4 tests s11b + les ≥ 4 tests s11c verts).
+- [ ] Documentation de l'API consommée : un commentaire en tête de `frontend/lib/stores/uploadStore.ts` référence le contrat s10 (`backend/app/api/documents/router.py:81-196`, `backend/app/api/documents/schemas.py:35-72`, `backend/app/services/rag/upload_service.py:39` pour `ALLOWED_EXTENSIONS`) et explique le mapping `code → UI state`.
+
+### Dependencies
+
+- **s11a-frontend-bootstrap merged ✅** (vérifié : `c3f1829`). Sans s11a, pas de `<FileUpload>`, pas de `<Header>`, pas de `<Card>`, pas de `authStore` cookie-backed, pas de `next-intl`, pas de `apiClient` axios.
+- **s10-api-upload merged ✅** (vérifié : `ff21046`). Contrat exact consommé par cette story — voir le commentaire d'AC sur `uploadStore.ts`.
+- **s01-uploader-document merged ✅** (vérifié) — le service d'upload et le pipeline RAG sont en place. La story ne touche que le frontend ; le backend est stable.
+
+### Agentic notes
+
+- **Files involved** (nouveaux) : `frontend/app/(public)/[locale]/upload/page.tsx`, `frontend/lib/stores/uploadStore.ts`, `frontend/e2e/upload.spec.ts`.
+- **Files involved** (modifiés) : `frontend/messages/fr.json` + `frontend/messages/en.json` (ajout namespace `upload` : titre « Uploader un document », sous-titre, label matière, label drop zone, label aide « PDF, image, texte (max 20 MB) », bouton « Choisir un fichier », bouton « Prendre une photo », bouton « Envoyer », bouton « Retirer », card succès, card warning OCR, card erreur 413/415/422/500/réseau, bouton « Réessayer », bouton « Uploader un autre document »), `frontend/components/FileUpload.tsx` (la version squelette de s11a est étendue : ajout drag & drop handlers, ajout bouton « Prendre une photo » conditionnel au viewport, ajout transformation en `<Card>` avec icône + nom + taille quand un fichier est sélectionné), `frontend/components/Header.tsx` (le lien `/upload` n'est plus `aria-disabled="true"` — c'est une vraie route maintenant ; retour s11a Minor #1 appliqué).
+- **Constraints** (cf. `AGENTS.md` § Frontend + `CLAUDE.md` § i18n/a11y) :
+  - **axios + multipart natif** : `apiClient.post('/api/documents/upload', formData)` fonctionne (axios gère `multipart/form-data` automatiquement, ajoute le `boundary`, et stream le body). **PAS de `fetch` direct** ici — c'est l'inverse de s11b (qui utilise `fetch` parce qu'axios bufferise les streams SSE).
+  - **`Content-Type: multipart/form-data` est généré automatiquement** par axios quand on lui passe un `FormData` (cf. `frontend/lib/api.ts:21-23` — l'interceptor n'écrit que `Accept`, pas `Content-Type`). **NE PAS** mettre `Content-Type: multipart/form-data` manuellement dans les headers, sinon le `boundary` manque et le backend rejette (cf. Piège recherche s11).
+  - **Pas de `Content-Length` côté frontend** : on laisse axios (ou le navigateur) le calculer. Le backend a un filet de sécurité au niveau 2 (`request.headers.get("content-length")`, `router.py:114-127`) puis au niveau 3 (`len(data) > max_bytes` après `file.read()`, `router.py:131-138`).
+  - **Pas de barre de progression** : axios classique n'expose pas `onUploadProgress` configuré dans `apiClient`. Si on veut une vraie progress bar, il faut soit l'ajouter à l'interceptor (impact sur les futurs endpoints non-upload), soit utiliser un `XMLHttpRequest` ad-hoc dans l'uploadStore. Décision s11c : **hors-scope**, gap noté pour s22 (UX pass) ou s25 (toasts). Le bouton affiche juste « Envoi en cours… » + spinner.
+  - **Pas de gestion du multi-upload** : un seul fichier à la fois. Si l'utilisateur drop 2 fichiers, on prend le premier et on ignore les autres. Si l'utilisateur drop 0 fichier, on ne fait rien.
+  - **Extensions acceptées** : le frontend doit aligner `accept=".pdf,.png,.jpg,.jpeg,.txt"` sur `ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".txt"}` côté backend (`upload_service.py:39`). **PAS de `.doc` ni `.docx`** dans l'AC, contrairement à ce que suggère la formulation design (« PDF, DOC, image » en § 4.6) — c'est un drift à corriger dans une future itération du design (gap noté en review).
+  - **i18n EN/FR complet** : le namespace `upload` doit couvrir les 2 langues. Le test Playwright vérifie le toggle (optionnel, peut être partagé avec s11b).
+  - **A11y** : la drop zone est un `<label htmlFor>` (focusable, déclenche le picker), pas un `<div onClick>` (cf. Piège #11 recherche + design-system l.273). Le drag & drop doit avoir un fallback clavier (le `<label htmlFor>` est focusable, Tab y mène, Espace/Entrée ouvre le picker — pas besoin d'un handler `onKeyDown` séparé). `aria-describedby` lie la drop zone au texte d'aide « max 20 MB ». Le bouton « Retirer » a un `aria-label="Retirer le fichier"`. Le bouton « Prendre une photo » a un `aria-label="Prendre une photo avec la caméra"` (sinon l'icône Lucide seule est lue comme « button » par NVDA/JAWS).
+  - **Multi-tenancy** : le `pseudo` est lu depuis le store (cookie-backed en s11a, JWT en s15). Ne JAMAIS hardcoder un pseudo côté client, ne JAMAIS l'extraire du `FormData` autrement que via `useAuthStore.getState().pseudo`.
+  - **CI** : le job `frontend` doit rester vert ; les étapes Playwright / Lighthouse / check-i18n s'appliquent automatiquement. Lighthouse audite `/fr/upload` en plus de `/fr/` et `/fr/chat` (étendre `lighthouserc.json.urls`).
+- **Traps** (recherche s11 Pièges #1-#14 + retours de s11a) :
+  - **Piège #1** (P0) : `Content-Type: multipart/form-data` ne doit PAS être mis manuellement. Si axios voit un `Content-Type` explicite avec `FormData`, il n'ajoute pas le `boundary` et le backend rejette. C'est l'erreur #1 sur les uploads multipart en JS. Documenter dans le commentaire de `uploadStore.upload` (« let axios set Content-Type with the correct boundary »).
+  - **Piège #2** (P0) : la validation d'extension est côté backend, pas côté frontend. Le `accept=".pdf,..."` du `<input>` est un **filtre d'UI** (le navigateur n'affiche que ces types dans le picker) mais l'utilisateur peut quand même sélectionner « All files » et choisir un `.docx` → l'API renvoie 415, le frontend affiche la card 415. NE PAS essayer de revalider côté frontend, on dupliquerait la logique.
+  - **Piège #3** (P0) : `e.preventDefault()` est obligatoire sur `onDragOver` sinon le navigateur ouvre le fichier au lieu de dropper. Idem sur `onDrop` pour consommer l'event. Sans ça, le test e2e (b) qui simule un drop ne fonctionnera pas.
+  - **Piège #4** (P1) : le drag & drop ne marche pas sur iOS Safari (limitation navigateur). Sur mobile, l'utilisateur passe par « Choisir un fichier » ou « Prendre une photo ». Le composant supporte les 3 chemins en parallèle.
+  - **Piège #5** (P1) : `capture="environment"` n'est pas garanti sur tous les navigateurs mobiles. Chrome Android l'ignore depuis 2024 et force la caméra frontale pour `capture="user"` (mais respecte `capture="environment"`). iOS Safari respecte les deux. Firefox Android ne supporte pas `capture`. C'est un gap, pas un blocker — l'utilisateur peut toujours utiliser le picker.
+  - **Piège #6** (P1) : `Intl.NumberFormat` sans option `maximumFractionDigits` peut afficher un fichier de `1.234567 MB`. Forcer `{maximumFractionDigits: 1}` dans l'AC. Le test e2e (b) peut stubber un fichier de 2.5 MB et vérifier l'affichage « 2.5 MB ».
+  - **Piège #11** (P0) : la drop zone doit rester un `<label htmlFor>`, pas devenir un `<div onClick>` quand on ajoute le drag & drop. Le drag & drop est un **enhancement** (le clavier marche toujours via le label), pas un remplacement.
+  - **Piège #12** (P1) : si l'utilisateur drop un fichier pendant qu'un upload est en cours (`isUploading=true`), on ignore le drop (`onDragOver` n'est pas attaché, ou `onDrop` early-return). Le test e2e peut stubber ce cas.
+  - **Retour s11a Minor #1** : le lien `/upload` du header n'est plus `aria-disabled` en s11c (cf. AC Header). Le test Lighthouse header passe maintenant les 2 liens.
+  - **Retour s11a Minor #2** : `<html lang>` reste hardcodé à `fr` — gap suivi en s22 ou en s11b'.
+  - **Retour s11a Minor #3** : `output: "standalone"` omis — pas un blocker pour s11c.
+  - **Trap spécifique MANUAL_REVIEW** : le backend renvoie 201 avec `chunks_count=0` ET `ocr_confidence` (souvent < 0.5). Le frontend doit afficher la card warning **uniquement** si `status === "manual_review_needed"`, pas seulement si `chunks_count === 0` (le backend peut renvoyer `status: "indexed"` avec 0 chunks en cas d'erreur d'indexation silencieuse — un futur fix backend pourrait changer ça, mais en s11c on suit le contrat actuel `schemas.py:42-44`).
+  - **Trap spécifique 422 ocr_failure** : le code `ocr_failure` n'est PAS dans le Literal Pydantic de `UploadErrorResponse.code` (cf. `schemas.py:67-72` qui liste `invalid_pseudo | invalid_file | ocr_failure | storage_failure`). En fait il y est ! Mais attention : le router mappe `UploadError` (qui a un kind `OCR_FAILURE`) vers 422, mais le code reste `ocr_failure`. Confirmer dans `upload_service.py` le kind string. Le frontend peut l'utiliser tel quel, l'AC le prévoit.
+- **Open questions** (à trancher en `ks-research` ou dans la PR) :
+  - **Q1** : faut-il un bouton « Annuler » pendant l'upload ? axios ne supporte pas nativement l'annulation sans `AbortController` ad-hoc. Décision : **hors-scope s11c**, gap à noter pour s22 (UX pass).
+  - **Q2** : faut-il persister le dernier fichier sélectionné entre deux ouvertures de la page (au sein d'une même session navigateur) ? Décision : **non**, chaque ouverture de `/upload` repart à zéro. Si l'utilisateur ferme l'onglet pendant un upload, l'upload en cours est abandonné (pas d'inflight persistence).
+  - **Q3** : faut-il afficher le `document_id` (UUID) dans la card succès ? Décision : **non pour l'élève** (c'est un détail technique). Mais utile pour le debug. Le test e2e peut vérifier que le payload est bien envoyé et la réponse reçue sans assert sur l'affichage de l'UUID.
+  - **Q4** : la limite de taille est 20 MB. Si l'utilisateur drop un fichier de 21 MB, que se passe-t-il ? Le frontend **ne peut pas** le savoir (le `accept` ne filtre pas par taille), le navigateur ne le rejette pas, et axios envoie le fichier. Le backend répond 413. Le frontend affiche la card 413. C'est le comportement attendu. Pas de validation côté frontend (`maxSize` est documenté dans `data-max-size` mais pas enforced, cf. Piège recherche #2).
+- **Out-of-scope** (à NE PAS implémenter en s11c, gaps explicites pour la review) :
+  - Multi-upload (plusieurs fichiers à la fois) → non prévu dans le PRD backend actuel, hors-scope.
+  - Drag & drop multiple → un seul fichier.
+  - Barre de progression réelle (`onUploadProgress` axios) → **s22** (UX pass) ou **s25** (toasts).
+  - Bouton « Annuler » pendant l'upload → **s22**.
+  - Persistance de l'historique d'uploads côté frontend → **s19** (history serveur) + extension frontend en s19' si besoin.
+  - Lien « Voir mes documents » dans la card succès → mort en s11c (s19 pas encore shippé), documenté en gap design § 10.
+  - Prévisualisation du fichier (PDF first page, image thumbnail) → hors-scope, pas dans le PRD.
+  - OCR côté frontend (Tesseract.js) → non, on délègue à l'API backend.
+  - Upload depuis URL (drag d'une URL) → non.
+  - Upload réessayable automatique (retry exponential backoff) → le bouton « Réessayer » est manuel, suffisant en s11c.
+  - Correction du drift design `.doc` → design-system / designs/s11-frontend-upload-chat.md suggère « PDF, DOC, image » mais le backend n'accepte que `.pdf, .png, .jpg, .jpeg, .txt`. À corriger dans une future itération du design (gap en review, hors-scope s11c).
 
 ---
 

@@ -235,11 +235,10 @@ jobs:
 
       - name: Setup pnpm
         if: steps.detect.outputs.exists == 'true'
-        # Corepack ships with Node 20+ and resolves any pnpm version from
-        # the `packageManager` field in package.json (pnpm@11.25.0 here).
-        # MUST run BEFORE `Setup Node` because actions/setup-node@v5 with
-        # `cache: pnpm` invokes `pnpm store path` to compute the cache key
-        # — and that fails if pnpm is not yet on the PATH.
+        # Corepack resolves the pnpm version from the `packageManager`
+        # field in frontend/package.json (currently pnpm@10.15.0).
+        # MUST run BEFORE `Setup Node` because pnpm must be on the PATH
+        # by the time anything that needs it executes.
         run: |
           corepack enable
           corepack prepare pnpm@10.15.0 --activate
@@ -250,8 +249,19 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "20"
+          # `cache: pnpm` enables the pnpm store cache (the bit we want).
+          # `package-manager-cache: false` disables setup-node@v5's
+          # auto-detection of the package manager from `packageManager` —
+          # that auto-detection runs `pnpm` during the Setup Node step to
+          # compute its cache key, and on Node 22.23.x it crashes inside
+          # undici (Parser.finish, assert !this.paused) before pnpm is on
+          # the PATH. We provision pnpm via corepack above instead, so the
+          # auto-detect is unnecessary and only harmful. See
+          # actions/setup-node#1357 + PR #1478 (fixed in v6, not backported
+          # to v5).
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
+          package-manager-cache: false
 
       - name: Install dependencies
         if: steps.detect.outputs.exists == 'true'
