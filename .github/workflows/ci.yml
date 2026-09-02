@@ -230,6 +230,18 @@ jobs:
         run: |
           echo "::notice::frontend/package.json not found — skipping frontend job."
 
+      - name: Setup pnpm
+        if: steps.detect.outputs.exists == 'true'
+        # Corepack ships with Node 20+ and resolves any pnpm version from
+        # the `packageManager` field in package.json (pnpm@11.25.0 here).
+        # MUST run BEFORE `Setup Node` because actions/setup-node@v5 with
+        # `cache: pnpm` invokes `pnpm store path` to compute the cache key
+        # — and that fails if pnpm is not yet on the PATH.
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
+          pnpm --version
+
       - name: Setup Node
         if: steps.detect.outputs.exists == 'true'
         uses: actions/setup-node@v5
@@ -237,17 +249,6 @@ jobs:
           node-version: "20"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Setup pnpm
-        if: steps.detect.outputs.exists == 'true'
-        # Corepack ships with Node 20+ and resolves any pnpm version from
-        # the `packageManager` field in package.json (pnpm@11.25.0 here).
-        # Replaces pnpm/action-setup@v4, which couldn't fetch pnpm 11 on
-        # ubuntu-latest (runner had only npm + yarn preinstalled, and
-        # action-setup fell back to a path that didn't exist).
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.25.0 --activate
 
       - name: Install dependencies
         if: steps.detect.outputs.exists == 'true'
