@@ -147,7 +147,71 @@ class UserErrorResponse(BaseModel):
     code: UserErrorCode = Field(..., description="Code machine de l'erreur.")
 
 
+# ---------------------------------------------------------------------------
+# s14 — parent-child link schemas
+# ---------------------------------------------------------------------------
+#
+# The ``UserErrorCode`` literal above is reused as the failure code
+# for the two new endpoints (``"user_not_found"`` and ``"forbidden"``
+# are already declared). We do **not** introduce a separate
+# ``ParentChildErrorCode`` — the same string appearing in two
+# literals is the documented Pydantic constraint, and it would be
+# duplication for no semantic gain.
+
+ChildRole = Literal["eleve", "parent", "admin"]
+
+
+class AddChildRequest(BaseModel):
+    """Body of ``POST /api/users/{parent_pseudo}/children``.
+
+    The ``child_pseudo`` field reuses the same invariants as
+    :class:`CreateUserRequest.pseudo` — length, encoding, pattern.
+    The handler is responsible for fetching the child by
+    case-insensitive match (``func.lower``), so the value sent
+    here can be of any case; only the *shape* is enforced here.
+    """
+
+    child_pseudo: str = Field(
+        ...,
+        min_length=MIN_PSEUDO_CHARS,
+        max_length=MAX_PSEUDO_CHARS,
+        pattern=PSEUDO_PATTERN,
+        description=(
+            "Pseudo de l'enfant à lier (3-32 chars, alphanumérique + underscore)."
+        ),
+    )
+
+
+class ChildLinkResponse(BaseModel):
+    """Successful ``POST .../children`` body (200 / 201)."""
+
+    parent_pseudo: str = Field(..., description="Pseudo du parent (canonique, DB).")
+    child_pseudo: str = Field(..., description="Pseudo de l'enfant (canonique, DB).")
+
+
+class ChildResponse(BaseModel):
+    """One element of the ``GET .../children`` list (200)."""
+
+    child_pseudo: str = Field(..., description="Pseudo de l'enfant lié.")
+    role: ChildRole = Field(..., description="Rôle du compte enfant.")
+
+
+ChildrenListResponse = list[ChildResponse]
+"""Body of ``GET /api/users/{parent_pseudo}/children`` (200).
+
+A top-level JSON array. An empty list means the parent has no linked
+children — a valid state (not a 404). FastAPI serialises a
+``list[ChildResponse]`` directly as the response body, so no
+wrapper class is needed (and Pydantic 2 does not need
+``__root__`` for that case)."""
+
+
 __all__ = [
+    "AddChildRequest",
+    "ChildLinkResponse",
+    "ChildResponse",
+    "ChildRole",
+    "ChildrenListResponse",
     "CreateUserRequest",
     "CreateUserResponse",
     "CreateUserRole",

@@ -9,19 +9,37 @@ The router exposes two admin-only (JWT) endpoints:
   ``eleve`` / ``parent`` / ``admin``. Includes a "last admin" guard:
   the only admin in the system cannot self-demote.
 
+s14 adds the parent-child link endpoints:
+
+* ``POST /api/users/{parent_pseudo}/children`` — link a child to a
+  parent (owner-or-admin, idempotent 200/201).
+* ``GET  /api/users/{parent_pseudo}/children`` — list the children
+  of a parent (owner-or-admin).
+
+The two new endpoints share a different authorisation model than
+the s13b ones: a parent can manage their own links, an admin can
+manage anyone's. They therefore depend on
+:func:`get_current_user` (not :func:`require_role` — using the
+latter would reject every parent, including the legitimate owner,
+research fact 1).
+
 Logging never includes the password, the hash, the JWT, or the
 ``jti`` (cf. AGENTS.md § Backend logging).
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from loguru import logger
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.users.schemas import (
+    AddChildRequest,
+    ChildLinkResponse,
+    ChildrenListResponse,
+    ChildResponse,
     CreateUserRequest,
     CreateUserResponse,
     UpdateRoleRequest,
@@ -30,9 +48,9 @@ from app.api.users.schemas import (
     UserErrorResponse,
     UserResponse,
 )
-from app.core.auth.middleware import require_role
+from app.core.auth.middleware import get_current_user, require_role
 from app.core.auth.passwords import hash_password
-from app.core.database.models import User, UserRole
+from app.core.database.models import ParentChildLink, User, UserRole
 from app.core.database.session import get_db
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -79,6 +97,58 @@ def _pseudo_already_exists(db: Session, pseudo: str) -> bool:
     return (
         db.query(User).filter(func.lower(User.pseudo) == pseudo.lower()).first()
         is not None
+    )
+
+
+def _fetch_user_or_404(db: Session, pseudo: str) -> User:
+    """Fetch a user by pseudo (case-insensitive) or raise 404.
+
+    The lookup is aligned with the case-insensitive uniqueness
+    convention (``func.lower``) used everywhere in the users
+    router — see :func:`update_role` for the canonical pattern.
+    The 404 body is the standard ``user_not_found`` shape so
+    clients do not need a special case to distinguish "missing
+    parent" from "missing child" or "missing user" on the role
+    update endpoint.
+    """
+    user = (
+        db.query(User).filter(func.lower(User.pseudo) == pseudo.lower()).one_or_none()
+    )
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_error_payload(
+                message="Utilisateur introuvable.",
+                code="user_not_found",
+            ),
+        )
+    return user
+
+
+def _assert_owner_or_admin(
+    *, current_user: User, parent: User, action: str
+) -> None:
+    """Reject the request if the caller is neither the parent nor an admin.
+
+    404 is **before** this check (in the handler): the 404 is what
+    hides the existence of the parent from a non-authorised caller.
+    Once we have a real parent row, this function only knows about
+    a 403 — there is no further "not found" path here.
+    """
+    if current_user.pseudo == parent.pseudo or current_user.role is UserRole.ADMIN:
+        return
+    logger.info(
+        "users.children.forbidden caller={} parent={} action={}",
+        current_user.pseudo,
+        parent.pseudo,
+        action,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=_error_payload(
+            message="Accès refusé.",
+            code="forbidden",
+        ),
     )
 
 
@@ -343,6 +413,188 @@ def update_role(
         user.role.value,
     )
     return UserResponse(pseudo=user.pseudo, role=body.role)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/users/{parent_pseudo}/children  (s14)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{parent_pseudo}/children",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ChildLinkResponse,
+    responses={
+        200: {"model": ChildLinkResponse, "description": "Lien déjà existant (idempotence)."},
+        201: {"model": ChildLinkResponse, "description": "Lien créé."},
+        401: {"model": UserErrorResponse, "description": "Token invalide ou expiré."},
+        403: {"model": UserErrorResponse, "description": "Caller ≠ parent et ≠ admin."},
+        404: {"model": UserErrorResponse, "description": "Parent ou enfant introuvable."},
+        422: {"model": UserErrorResponse, "description": "Validation Pydantic."},
+        500: {"model": UserErrorResponse, "description": "Erreur interne."},
+    },
+)
+def add_child(
+    parent_pseudo: str,
+    body: AddChildRequest,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ChildLinkResponse:
+    """Link a child to a parent (idempotent 200/201).
+
+    The authorisation is **owner-or-admin**: a parent can manage
+    their own links, an admin can manage anyone's. The check
+    happens **after** the parent fetch, so a non-existent parent
+    URL returns 404 (not 403) — research trap 5 / anti-leak.
+
+    Idempotence: re-POSTing the same ``(parent, child)`` pair
+    returns 200 with the same body and creates no extra row. The
+    pre-check is read-only; the ``catch IntegrityError`` on the
+    INSERT handles the rare race where two concurrent requests
+    pass the pre-check at the same time (the DB composite PK
+    would otherwise raise 409).
+    """
+    # Step 1 — fetch the parent. 404 before 403 (anti-leak).
+    parent = _fetch_user_or_404(db, parent_pseudo)
+
+    # Step 2 — owner-or-admin.
+    _assert_owner_or_admin(
+        current_user=current_user, parent=parent, action="add"
+    )
+
+    # Step 3 — fetch the child. Same anti-leak discipline.
+    child = _fetch_user_or_404(db, body.child_pseudo)
+
+    # Step 4 — pre-check (UX, not security; the DB composite PK is
+    # the source of truth for the uniqueness rule).
+    existing = (
+        db.query(ParentChildLink)
+        .filter(
+            func.lower(ParentChildLink.parent_pseudo) == parent.pseudo.lower(),
+            func.lower(ParentChildLink.child_pseudo) == child.pseudo.lower(),
+        )
+        .one_or_none()
+    )
+    if existing is not None:
+        logger.info(
+            "users.children.duplicate parent={} child={} actor={}",
+            parent.pseudo,
+            child.pseudo,
+            current_user.pseudo,
+        )
+        response.status_code = status.HTTP_200_OK
+        return ChildLinkResponse(
+            parent_pseudo=parent.pseudo,
+            child_pseudo=child.pseudo,
+        )
+
+    # Step 5 — insert. The pre-check + ``catch IntegrityError``
+    # together guarantee we never return 409 on the duplicate case:
+    # the pre-check catches the common path, the catch handles the
+    # race.
+    db.add(
+        ParentChildLink(parent_pseudo=parent.pseudo, child_pseudo=child.pseudo)
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        logger.info(
+            "users.children.race_duplicate parent={} child={} actor={}",
+            parent.pseudo,
+            child.pseudo,
+            current_user.pseudo,
+        )
+        response.status_code = status.HTTP_200_OK
+        return ChildLinkResponse(
+            parent_pseudo=parent.pseudo,
+            child_pseudo=child.pseudo,
+        )
+    except Exception as exc:  # noqa: BLE001 - intentional: convert to 500
+        db.rollback()
+        logger.error(
+            "users.children.unexpected parent={} child={} actor={} err={}",
+            parent.pseudo,
+            child.pseudo,
+            current_user.pseudo,
+            exc.__class__.__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=_error_payload(
+                message="Erreur interne.",
+                code="internal",
+            ),
+        )
+
+    logger.info(
+        "users.children.created parent={} child={} actor={}",
+        parent.pseudo,
+        child.pseudo,
+        current_user.pseudo,
+    )
+    return ChildLinkResponse(
+        parent_pseudo=parent.pseudo,
+        child_pseudo=child.pseudo,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/users/{parent_pseudo}/children  (s14)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{parent_pseudo}/children",
+    response_model=ChildrenListResponse,
+    responses={
+        200: {"model": ChildrenListResponse, "description": "Liste (peut être vide)."},
+        401: {"model": UserErrorResponse, "description": "Token invalide ou expiré."},
+        403: {"model": UserErrorResponse, "description": "Caller ≠ parent et ≠ admin."},
+        404: {"model": UserErrorResponse, "description": "Parent introuvable."},
+        500: {"model": UserErrorResponse, "description": "Erreur interne."},
+    },
+)
+def list_children(
+    parent_pseudo: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ChildrenListResponse:
+    """List the children of a parent (owner-or-admin).
+
+    Returns ``[]`` (NOT 404) when the parent has no linked children
+    — absence of children is a valid state, not an error. The 404
+    only fires when the parent itself does not exist (anti-leak,
+    same as :func:`add_child`).
+    """
+    # Step 1 — fetch the parent. 404 before 403.
+    parent = _fetch_user_or_404(db, parent_pseudo)
+
+    # Step 2 — owner-or-admin.
+    _assert_owner_or_admin(
+        current_user=current_user, parent=parent, action="list"
+    )
+
+    # Step 3 — JOIN. The canonical pseudo (case-preserved) is the
+    # one stored on the User row, so we filter on
+    # ``ParentChildLink.parent_pseudo == parent.pseudo`` (no
+    # ``func.lower`` — we already have the canonical form).
+    children = (
+        db.query(User)
+        .join(ParentChildLink, ParentChildLink.child_pseudo == User.pseudo)
+        .filter(ParentChildLink.parent_pseudo == parent.pseudo)
+        .all()
+    )
+
+    response_list = [ChildResponse(child_pseudo=u.pseudo, role=u.role.value) for u in children]
+    logger.info(
+        "users.children.listed parent={} count={} actor={}",
+        parent.pseudo,
+        len(response_list),
+        current_user.pseudo,
+    )
+    return response_list
 
 
 __all__ = ["router"]
