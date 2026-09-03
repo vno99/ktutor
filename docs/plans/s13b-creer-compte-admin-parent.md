@@ -61,7 +61,7 @@ Créer deux endpoints admin-only (JWT) pour gérer les comptes non-élève et le
 
 9. [x] **Lint + typecheck** : `cd backend && ruff check app/ tests/` (zéro nouveau warning) + `mypy app/` (zéro nouvelle erreur). **Vérification** : CI lint job passe.
 
-10. [ ] **Conventional commit unique** : `feat(api): add /api/users create + role update admin endpoints (s13b)` couvrant tous les fichiers modifiés + créés. Pas de commit par tâche. **Vérification** : `git log -1` montre un seul commit avec tous les fichiers (research + plan + code + tests).
+10. [x] **Conventional commit unique** : `feat(api): add /api/users create + role update admin endpoints (s13b)` couvrant tous les fichiers modifiés + créés. Pas de commit par tâche. **Vérification** : `git log -1` montre un seul commit avec tous les fichiers (research + plan + code + tests).
 
 ## Run interdicts
 
