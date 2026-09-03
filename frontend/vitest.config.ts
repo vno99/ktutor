@@ -24,6 +24,14 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Provide a non-opaque URL so ``window.localStorage`` and
+    // ``document.cookie`` are available (jsdom defaults to
+    // ``about:blank`` and refuses storage on opaque origins).
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost/',
+      },
+    },
     include: [
       'components/**/*.test.{ts,tsx}',
       'lib/**/*.test.{ts,tsx}',

@@ -143,6 +143,23 @@ class Settings(BaseSettings):
     # exit 6.
     max_correction_attempts: int = 3
 
+    # Auth — JWT (s13 — login / refresh / logout, RS256 + RBAC).
+    # The private key signs access + refresh tokens; the public key
+    # verifies them. Both paths are local to the running process and
+    # the files are gitignored (cf. ``scripts/generate_jwt_keys.py``).
+    # In production the private key would be loaded from a secret
+    # manager; the path-based loader is acceptable for the POC.
+    jwt_private_key_path: str = "./keys/jwt_private.pem"
+    jwt_public_key_path: str = "./keys/jwt_public.pem"
+    # Pinned to ``RS256`` — the decoder in ``app.core.auth.jwt`` whitelists
+    # this algorithm explicitly. NEVER change to ``none`` or ``HS256``
+    # (Piège 1 — alg-confusion attack).
+    jwt_algorithm: str = "RS256"
+    # Access token lifetime (minutes). AC3 — 30 min.
+    jwt_access_token_expire_minutes: int = 30
+    # Refresh token lifetime (days). AC4 — 7 days.
+    jwt_refresh_token_expire_days: int = 7
+
 
 _settings: Settings | None = None
 

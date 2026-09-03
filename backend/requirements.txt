@@ -31,8 +31,13 @@ python-multipart>=0.0.9
 # Storage
 minio>=7.2
 
-# Auth (s12 — register endpoint hashes passwords with bcrypt)
+# Auth (s12 — register endpoint hashes passwords with bcrypt; s13 — JWT RS256)
 bcrypt>=4.0
+# ``[crypto]`` pulls ``cryptography`` transitively, which provides
+# RSA + PEM loaders used by ``app/core/auth/jwt.py``. Version pinned
+# at >=2.8 for the ``algorithms=[...]`` whitelist + ``options=require``
+# ergonomics.
+pyjwt[crypto]>=2.8
 
 # Text processing
 langchain-text-splitters>=0.3
