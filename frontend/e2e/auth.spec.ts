@@ -75,10 +75,15 @@ test.describe('Auth header affordance (s13)', () => {
     await page.getByLabel('Pseudo').fill('ali');
     await page.getByLabel('Mot de passe').fill('some-password');
     await page.getByRole('button', { name: 'Se connecter' }).click();
+    // Wait for the post-login redirect to /fr/chat.
+    await page.waitForURL(/\/fr\/chat$/);
     // The CTA "Se connecter" in the Header is no longer visible.
     await expect(page.getByRole('link', { name: 'Se connecter' })).toHaveCount(0);
     // The avatar summary is now present.
-    await expect(page.getByRole('button', { name: /avatar de ali/i })).toBeVisible();
+    // NOTE: <summary> elements in the current Chromium build do not expose
+    // the implicit `button` role to Playwright, so we query by aria-label
+    // (the Header sets aria-label="Avatar de {pseudo}" on the summary).
+    await expect(page.getByLabel(/avatar de ali/i)).toBeVisible();
   });
 
   test('avatar menu exposes logout, which clears the avatar', async ({ page }) => {
@@ -88,7 +93,8 @@ test.describe('Auth header affordance (s13)', () => {
     await page.getByLabel('Pseudo').fill('ali');
     await page.getByLabel('Mot de passe').fill('some-password');
     await page.getByRole('button', { name: 'Se connecter' }).click();
-    const avatar = page.getByRole('button', { name: /avatar de ali/i });
+    await page.waitForURL(/\/fr\/chat$/);
+    const avatar = page.getByLabel(/avatar de ali/i);
     await expect(avatar).toBeVisible();
     // Open the native <details> menu and click "Se déconnecter".
     await avatar.click();

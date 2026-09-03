@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 /*
- * /chat page e2e (s11b).
+ * /chat page e2e (s11b, refreshed for s13).
  *
  * Covers the 5 behaviour tests + 2 a11y scans called out in the plan:
  *  - (a) renders with all controls and htmlFor
@@ -13,22 +13,36 @@ import AxeBuilder from '@axe-core/playwright';
  *  - (a11y fr) axe-core: 0 critical/serious on /fr/chat
  *  - (a11y en) axe-core: 0 critical/serious on /en/chat
  *
- * The pseudo is set via the <Header> input so the Send button is
- * enabled. Stream responses are stubbed via page.route (no LLM).
+ * The pseudo is set via the `pseudo` cookie (ADR 011 § Migration,
+ * mirrored by ``authStore.setTokens`` on login). s11a's <Header>
+ * input that wrote the cookie is gone — s13 replaces it with the
+ * login flow. Stream responses are stubbed via page.route (no LLM).
  */
 
 const VALID_PSEUDO = 'ali_baba';
 
-async function setPseudo(page: import('@playwright/test').Page) {
-  await page.goto('/fr/');
-  const input = page.getByLabel('Ton pseudo');
-  await input.fill(VALID_PSEUDO);
-  await input.blur();
+async function setPseudo(
+  _page: import('@playwright/test').Page,
+  context: import('@playwright/test').BrowserContext,
+) {
+  // The same cookie the production mirror writes (authStore.setTokens
+  // → writePseudoCookie on login, cf. authStore.ts PSEUDO_COOKIE).
+  // Playwright requires either a `url` or a `domain+path` pair.
+  await context.addCookies([
+    {
+      name: 'pseudo',
+      value: VALID_PSEUDO,
+      url: 'http://localhost:3000',
+    },
+  ]);
 }
 
 test.describe('Chat page', () => {
-  test('renders with all controls and htmlFor labels', async ({ page }) => {
-    await setPseudo(page);
+  test('renders with all controls and htmlFor labels', async ({
+    page,
+    context,
+  }) => {
+    await setPseudo(page, context);
     await page.goto('/fr/chat');
     await expect(
       page.getByRole('heading', { name: 'Chatter avec un agent' }),
@@ -46,8 +60,9 @@ test.describe('Chat page', () => {
 
   test('streams a stubbed SSE token by token and renders sources', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.route('**/api/chat/stream', async (route) => {
       await route.fulfill({
         status: 200,
@@ -70,8 +85,9 @@ test.describe('Chat page', () => {
 
   test('displays inline error card on stream error event and Retry', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.route('**/api/chat/stream', async (route) => {
       await route.fulfill({
         status: 200,
@@ -94,8 +110,9 @@ test.describe('Chat page', () => {
 
   test('keyboard navigation reaches select, textarea, and send button', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.goto('/fr/chat');
     // Fill the form so the send button is enabled (canSend === true) and
     // accepts focus. Disabled buttons have tabindex=-1 and are skipped by
@@ -112,8 +129,11 @@ test.describe('Chat page', () => {
     await expect(page.getByRole('button', { name: 'Envoyer' })).toBeFocused();
   });
 
-  test('toggle FR/EN switches the chat UI to English', async ({ page }) => {
-    await setPseudo(page);
+  test('toggle FR/EN switches the chat UI to English', async ({
+    page,
+    context,
+  }) => {
+    await setPseudo(page, context);
     await page.goto('/fr/chat');
     await expect(
       page.getByRole('heading', { name: 'Chatter avec un agent' }),
@@ -132,8 +152,9 @@ test.describe('Chat page', () => {
 
   test('axe-core: no critical or serious violations on /fr/chat', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.goto('/fr/chat');
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
@@ -149,8 +170,9 @@ test.describe('Chat page', () => {
 
   test('axe-core: no critical or serious violations on /en/chat', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.goto('/en/chat');
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
