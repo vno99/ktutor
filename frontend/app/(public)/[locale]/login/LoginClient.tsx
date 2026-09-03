@@ -246,7 +246,7 @@ export function LoginClient() {
                 ? { next: searchParams.get('next') ?? undefined }
                 : undefined,
             }}
-            className="text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-sm"
+            className="text-primary-strong underline underline-offset-2 hover:no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas rounded-sm"
           >
             {t('registerLink')}
           </Link>
