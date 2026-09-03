@@ -74,5 +74,44 @@
     "no_subject": "Matière inconnue. Choisis « Mathématiques » ou « Français ».",
     "invalid_pseudo": "Pseudo invalide. 3 à 32 caractères (lettres, chiffres, underscore).",
     "unknown": "Une erreur est survenue. Réessaye plus tard."
+  },
+  "auth": {
+    "login": {
+      "title": "Se connecter",
+      "subtitle": "Accède à ton espace et reprends là où tu t'étais arrêté.",
+      "pseudoLabel": "Pseudo",
+      "passwordLabel": "Mot de passe",
+      "pseudoPlaceholder": "Ton pseudo",
+      "passwordPlaceholder": "Ton mot de passe",
+      "submit": "Se connecter",
+      "submitting": "Connexion…",
+      "noAccount": "Pas encore de compte ?",
+      "registerLink": "Créer un compte"
+    },
+    "register": {
+      "title": "Créer un compte élève",
+      "subtitle": "Choisis un pseudo et un mot de passe. Tu pourras te reconnecter plus tard.",
+      "pseudoLabel": "Pseudo",
+      "passwordLabel": "Mot de passe",
+      "pseudoPlaceholder": "3 à 32 caractères (lettres, chiffres, underscore)",
+      "passwordPlaceholder": "8 caractères minimum",
+      "submit": "Créer mon compte",
+      "submitting": "Création…",
+      "hasAccount": "Déjà un compte ?",
+      "loginLink": "Se connecter"
+    },
+    "logout": {
+      "button": "Se déconnecter",
+      "menuLabel": "Mon espace",
+      "loginCta": "Se connecter"
+    },
+    "errors": {
+      "invalidPseudo": "Pseudo invalide. 3 à 32 caractères (lettres, chiffres, underscore).",
+      "invalidCredentials": "Pseudo ou mot de passe incorrect.",
+      "pseudoTaken": "Ce pseudo est déjà pris.",
+      "weakPassword": "Mot de passe trop faible (8 caractères minimum).",
+      "network": "Erreur réseau. Vérifie ta connexion.",
+      "retry": "Réessayer"
+    }
   }
 }

@@ -19,10 +19,13 @@ if str(BACKEND_ROOT) not in sys.path:
 def _reset_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure each test gets a fresh settings cache (no env bleed-through)."""
     from app.core import config
+    from app.core.auth import jwt as auth_jwt
 
     config.reset_settings()
+    auth_jwt.reset_key_cache()
     yield
     config.reset_settings()
+    auth_jwt.reset_key_cache()
 
 
 @pytest.fixture(autouse=True)

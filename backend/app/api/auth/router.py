@@ -1,50 +1,76 @@
-"""``POST /api/auth/register`` — public account creation (s12).
+"""Auth endpoints (s12 register, s13 login / refresh / logout).
 
-The endpoint is the only way a visitor becomes an ``eleve`` in the
-system (cf. ADR 005). The flow:
+The router is the **only** HTTP entry point to the auth subsystem.
+It delegates to:
 
-1. Pydantic validates ``{pseudo, password}`` (422 on bad shape or
-   oversize password). The router never sees an unvalidated body.
-2. Pre-check :func:`User` uniqueness case-insensitively. If a row
-   already exists → 409 ``pseudo_taken`` without touching the DB
-   writer.
-3. Hash the password with bcrypt and insert a new ``User`` row with
-   ``role=UserRole.ELEVE`` (D8: the endpoint never creates ``parent``
-   or ``admin``).
-4. If the DB constraint catches a duplicate that the pre-check missed
-   (race condition between two concurrent requests) → 409
-   ``pseudo_taken``. ``db.rollback()`` is mandatory to avoid leaving
-   the session in a broken state.
-5. Any other failure → 500 ``internal`` with ``db.rollback()``.
+* :mod:`app.core.auth.passwords` — bcrypt hash + verify.
+* :mod:`app.core.auth.jwt` — RS256 encode / decode + whitelist.
+* :mod:`app.core.auth.middleware` — ``get_current_user`` dependency.
+* :mod:`app.core.auth.token_blacklist` — ``jti`` revocation list.
 
-Logging never includes the password or its hash (cf. AGENTS.md §
-Backend logging and the research § Traps 4).
+Logging never includes the password, the hash, the JWT, the
+``jti``, or the refresh token (cf. AGENTS.md § Backend logging
+and research § Traps 4, 16).
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from loguru import logger
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.auth.schemas import (
+    AuthErrorResponse,
+    LoginRequest,
+    RefreshRequest,
     RegisterErrorCode,
     RegisterErrorResponse,
     RegisterRequest,
     RegisterResponse,
+    TokenPairResponse,
 )
-from app.core.auth.passwords import hash_password
+from app.core.auth import token_blacklist
+from app.core.auth.jwt import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+)
+from app.core.auth.middleware import get_current_user
+from app.core.auth.passwords import hash_password, verify_password
+from app.core.config import get_settings
 from app.core.database.models import User, UserRole
 from app.core.database.session import get_db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-def _error_payload(*, message: str, code: RegisterErrorCode) -> dict:
-    """Build the canonical error body for HTTPException details."""
+# ---------------------------------------------------------------------------
+# Module-level dummy hash — timing-constant login (Piège 2).
+# ``verify_password`` is constant-time over the bcrypt cost factor
+# (~250ms at cost 12), regardless of whether the row exists. The
+# dummy hash is computed once at import time and is the
+# ``verify_password`` target when ``user is None``. This equalises
+# the timing of the "unknown pseudo" and "wrong password" branches
+# so an attacker cannot probe the database through latency.
+# ---------------------------------------------------------------------------
+_DUMMY_HASH: str = hash_password("dummy_password_for_timing")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _register_error_payload(*, message: str, code: RegisterErrorCode) -> dict:
+    """Canonical error body for the register endpoint."""
     return RegisterErrorResponse(error=message, code=code).model_dump()
+
+
+def _auth_error_payload(*, message: str, code: str) -> dict:
+    """Canonical error body for the login / refresh / logout endpoints."""
+    return AuthErrorResponse(error=message, code=code).model_dump()  # type: ignore[arg-type]
 
 
 @router.post(
@@ -79,7 +105,7 @@ def register(
         logger.info("register.conflict pseudo={}", body.pseudo)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=_error_payload(
+            detail=_register_error_payload(
                 message="Ce pseudo est déjà pris.",
                 code="pseudo_taken",
             ),
@@ -107,7 +133,7 @@ def register(
         logger.info("register.race_conflict pseudo={}", body.pseudo)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=_error_payload(
+            detail=_register_error_payload(
                 message="Ce pseudo est déjà pris.",
                 code="pseudo_taken",
             ),
@@ -121,7 +147,7 @@ def register(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=_error_payload(
+            detail=_register_error_payload(
                 message="Erreur interne.",
                 code="internal",
             ),
@@ -130,6 +156,204 @@ def register(
 
     logger.info("register.created pseudo={}", body.pseudo)
     return RegisterResponse(pseudo=user.pseudo)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/login (s13)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/login",
+    status_code=status.HTTP_200_OK,
+    response_model=TokenPairResponse,
+    responses={
+        401: {"model": AuthErrorResponse, "description": "Identifiants invalides."},
+    },
+)
+def login(
+    body: LoginRequest,
+    db: Session = Depends(get_db),
+) -> TokenPairResponse:
+    """Authenticate a user and return an access + refresh token pair.
+
+    The endpoint is timing-constant (Piège 2): the "unknown pseudo"
+    branch invokes ``verify_password`` on a dummy hash so the
+    response time matches the "wrong password" branch within the
+    bcrypt cost factor. The 401 body is identical in both cases.
+    """
+    # Step 1 — case-insensitive lookup. ``User.pseudo`` preserves
+    # case; the case-insensitive unique index (D3 s12) backs the
+    # equality.
+    user = (
+        db.query(User)
+        .filter(func.lower(User.pseudo) == body.pseudo.lower())
+        .one_or_none()
+    )
+
+    # Step 2 — verify. If the user does not exist, ``verify_password``
+    # is called on the dummy hash; the call is constant-time and
+    # the cost factor is identical to a real hash. The decision
+    # (``if``) is taken **after** the verify so the timing is
+    # uniform.
+    password_ok = (
+        verify_password(body.password, user.password_hash)
+        if user is not None
+        else verify_password(body.password, _DUMMY_HASH)
+    )
+
+    if user is None or not password_ok:
+        # Generic 401 — same body whether the pseudo is unknown or
+        # the password is wrong (Piège 2 + 2 bis). The log line
+        # carries the pseudo provided so an operator can spot a
+        # brute-force pattern, but never the password or the hash.
+        logger.info("login.failed pseudo={}", body.pseudo)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_auth_error_payload(
+                message="Pseudo ou mot de passe incorrect.",
+                code="invalid_credentials",
+            ),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Step 3 — issue tokens. The role is taken from the DB row, not
+    # the request body, so an admin who demoted the user between
+    # requests cannot be bypassed.
+    settings = get_settings()
+    access = create_access_token(user.pseudo, user.role)
+    refresh = create_refresh_token(user.pseudo, user.role)
+    logger.info("login.success pseudo={} role={}", user.pseudo, user.role.value)
+    return TokenPairResponse(
+        access_token=access,
+        refresh_token=refresh,
+        expires_in=settings.jwt_access_token_expire_minutes * 60,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/refresh (s13)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/refresh",
+    status_code=status.HTTP_200_OK,
+    response_model=TokenPairResponse,
+    responses={
+        401: {"model": AuthErrorResponse, "description": "Refresh token invalide."},
+    },
+)
+def refresh(
+    body: RefreshRequest,
+    db: Session = Depends(get_db),
+) -> TokenPairResponse:
+    """Rotate the refresh token and return a new pair.
+
+    The old refresh's ``jti`` is added to the in-process blacklist
+    **before** the new pair is returned. A subsequent call to
+    ``/refresh`` with the old token is rejected with 401
+    ``invalid_token`` (AC5). The role is re-read from the database
+    so a role change between two refreshes is honoured.
+    """
+    # Step 1 — decode the refresh token. ``decode_token`` enforces
+    # the algorithm whitelist, the required claims, the ``type``
+    # claim (= "refresh"), and the blacklist. Any failure is a 401.
+    try:
+        claims = decode_token(body.refresh_token, "refresh")
+    except Exception:  # noqa: BLE001 - intentional: convert to 401
+        logger.info("refresh.decode_failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_auth_error_payload(
+                message="Refresh token invalide.",
+                code="invalid_token",
+            ),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    sub = claims.get("sub")
+    jti = claims.get("jti")
+
+    # Step 2 — fetch the user. If the user has been deleted between
+    # login and refresh, the refresh is rejected.
+    user = (
+        db.query(User).filter(User.pseudo == sub).one_or_none()
+        if isinstance(sub, str) and sub
+        else None
+    )
+    if user is None:
+        logger.info("refresh.user_missing pseudo={}", sub)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_auth_error_payload(
+                message="Refresh token invalide.",
+                code="invalid_token",
+            ),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Step 3 — rotate. The old ``jti`` is blacklisted BEFORE the new
+    # pair is returned, so a stolen refresh that is replayed after
+    # the legitimate refresh will fail.
+    if isinstance(jti, str) and jti:
+        token_blacklist.add(jti)
+
+    settings = get_settings()
+    new_access = create_access_token(user.pseudo, user.role)
+    new_refresh = create_refresh_token(user.pseudo, user.role)
+    logger.info("refresh.success pseudo={}", user.pseudo)
+    return TokenPairResponse(
+        access_token=new_access,
+        refresh_token=new_refresh,
+        expires_in=settings.jwt_access_token_expire_minutes * 60,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/logout (s13)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        401: {"model": AuthErrorResponse, "description": "Token manquant ou invalide."},
+    },
+)
+def logout(
+    user: User = Depends(get_current_user),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> Response:
+    """Revoke the current access token (returns 204 No Content).
+
+    The dependency ``get_current_user`` decodes the token and
+    raises 401 on any failure; the handler is only reached with a
+    valid access token. The token's ``jti`` is added to the
+    blacklist; subsequent calls to any protected endpoint with
+    the same access token are rejected with 401 ``invalid_token``.
+    """
+    # We need the ``jti`` to blacklist. ``get_current_user``
+    # validated the token via the same header, so we re-decode it
+    # here using the public key. The decode is fast and the
+    # dependency has already filtered out the bad cases.
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            try:
+                claims = decode_token(token, "access")
+            except Exception:  # noqa: BLE001
+                # The dependency already 401'd; this branch is
+                # defensive and should be unreachable in practice.
+                claims = None
+            if claims is not None:
+                jti = claims.get("jti")
+                if isinstance(jti, str) and jti:
+                    token_blacklist.add(jti)
+
+    logger.info("logout.success pseudo={}", user.pseudo)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 __all__ = ["router"]

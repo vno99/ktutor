@@ -74,5 +74,44 @@
     "no_subject": "Unknown subject. Choose \"Mathematics\" or \"French\".",
     "invalid_pseudo": "Invalid pseudo. 3 to 32 characters (letters, digits, underscore).",
     "unknown": "Something went wrong. Try again later."
+  },
+  "auth": {
+    "login": {
+      "title": "Sign in",
+      "subtitle": "Access your space and pick up where you left off.",
+      "pseudoLabel": "Pseudo",
+      "passwordLabel": "Password",
+      "pseudoPlaceholder": "Your pseudo",
+      "passwordPlaceholder": "Your password",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "noAccount": "No account yet?",
+      "registerLink": "Create one"
+    },
+    "register": {
+      "title": "Create a student account",
+      "subtitle": "Pick a pseudo and a password. You can sign back in later.",
+      "pseudoLabel": "Pseudo",
+      "passwordLabel": "Password",
+      "pseudoPlaceholder": "3 to 32 characters (letters, digits, underscore)",
+      "passwordPlaceholder": "8 characters minimum",
+      "submit": "Create my account",
+      "submitting": "Creating…",
+      "hasAccount": "Already have an account?",
+      "loginLink": "Sign in"
+    },
+    "logout": {
+      "button": "Sign out",
+      "menuLabel": "My space",
+      "loginCta": "Sign in"
+    },
+    "errors": {
+      "invalidPseudo": "Invalid pseudo. 3 to 32 characters (letters, digits, underscore).",
+      "invalidCredentials": "Wrong pseudo or password.",
+      "pseudoTaken": "This pseudo is already taken.",
+      "weakPassword": "Password too weak (8 characters minimum).",
+      "network": "Network error. Check your connection.",
+      "retry": "Retry"
+    }
   }
 }

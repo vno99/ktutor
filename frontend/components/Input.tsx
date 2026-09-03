@@ -10,7 +10,13 @@ import { forwardRef, type InputHTMLAttributes } from 'react';
 export interface InputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
   id: string;
-  type?: 'text' | 'file';
+  /**
+   * ``text`` (default), ``password`` (s13 login form), or
+   * ``file`` (s11c upload). Other HTML input types (``email``,
+   * ``number``...) are not currently used; add them here when
+   * needed.
+   */
+  type?: 'text' | 'password' | 'file';
   variant?: 'default' | 'file';
   invalid?: boolean;
 }

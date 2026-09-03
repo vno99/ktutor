@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 /*
- * /upload page e2e (s11c).
+ * /upload page e2e (s11c, refreshed for s13).
  *
  * Covers the 5 behaviour tests + 2 a11y scans called out in the plan:
  *  - (a) renders with all controls and htmlFor; Envoyer disabled when
@@ -17,22 +17,36 @@ import AxeBuilder from '@axe-core/playwright';
  *  - (a11y fr) axe-core: 0 critical/serious on /fr/upload
  *  - (a11y en) axe-core: 0 critical/serious on /en/upload
  *
- * The pseudo is set via the <Header> input so the Send button is
- * enabled. Upload responses are stubbed via page.route (no backend).
+ * The pseudo is set via the `pseudo` cookie (ADR 011 § Migration,
+ * mirrored by ``authStore.setTokens`` on login). s11a's <Header>
+ * input that wrote the cookie is gone — s13 replaces it with the
+ * login flow. Upload responses are stubbed via page.route (no backend).
  */
 
 const VALID_PSEUDO = 'ali_baba';
 
-async function setPseudo(page: import('@playwright/test').Page) {
-  await page.goto('/fr/');
-  const input = page.getByLabel('Ton pseudo');
-  await input.fill(VALID_PSEUDO);
-  await input.blur();
+async function setPseudo(
+  _page: import('@playwright/test').Page,
+  context: import('@playwright/test').BrowserContext,
+) {
+  // The same cookie the production mirror writes (authStore.setTokens
+  // → writePseudoCookie on login, cf. authStore.ts PSEUDO_COOKIE).
+  // Playwright requires either a `url` or a `domain+path` pair.
+  await context.addCookies([
+    {
+      name: 'pseudo',
+      value: VALID_PSEUDO,
+      url: 'http://localhost:3000',
+    },
+  ]);
 }
 
 test.describe('Upload page', () => {
-  test('(a) renders with all controls and htmlFor labels', async ({ page }) => {
-    await setPseudo(page);
+  test('(a) renders with all controls and htmlFor labels', async ({
+    page,
+    context,
+  }) => {
+    await setPseudo(page, context);
     await page.goto('/fr/upload');
     await expect(
       page.getByRole('heading', { name: 'Uploader un document' }),
@@ -51,8 +65,9 @@ test.describe('Upload page', () => {
 
   test('(b) uploads a stubbed file successfully and shows the success card', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.route('**/api/documents/upload', async (route) => {
       // The browser sends a multipart/form-data payload — axios injects
       // the boundary automatically. We assert the multipart body
@@ -96,8 +111,11 @@ test.describe('Upload page', () => {
     ).toBeVisible();
   });
 
-  test('(c) displays 413 error card on file too large', async ({ page }) => {
-    await setPseudo(page);
+  test('(c) displays 413 error card on file too large', async ({
+    page,
+    context,
+  }) => {
+    await setPseudo(page, context);
     await page.route('**/api/documents/upload', async (route) => {
       await route.fulfill({
         status: 413,
@@ -129,8 +147,9 @@ test.describe('Upload page', () => {
 
   test('(d) displays 415 error card on unsupported extension (AC9(b))', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.route('**/api/documents/upload', async (route) => {
       await route.fulfill({
         status: 415,
@@ -163,8 +182,9 @@ test.describe('Upload page', () => {
 
   test('(e) displays 201 manual_review_needed as a warning card', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.route('**/api/documents/upload', async (route) => {
       await route.fulfill({
         status: 201,
@@ -197,8 +217,9 @@ test.describe('Upload page', () => {
 
   test('axe-core: no critical or serious violations on /fr/upload', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.goto('/fr/upload');
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
@@ -214,8 +235,9 @@ test.describe('Upload page', () => {
 
   test('axe-core: no critical or serious violations on /en/upload', async ({
     page,
+    context,
   }) => {
-    await setPseudo(page);
+    await setPseudo(page, context);
     await page.goto('/en/upload');
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])

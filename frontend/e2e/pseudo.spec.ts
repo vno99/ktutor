@@ -1,45 +1,85 @@
 import { test, expect } from '@playwright/test';
 
 /*
- * Pseudo persistence e2e (s11a).
+ * Pseudo identity contract e2e (s13).
  *
- * - The header input is paired with a <label> (a11y).
- * - Typing a valid pseudo and blurring writes the `pseudo` cookie.
- * - Reloading the page keeps the pseudo (the avatar initial is recomputed).
- * - An invalid pseudo (3 < n ≤ 32) is rejected (input marked aria-invalid).
+ * s11a shipped a cookie-backed `pseudo` written by a <Header> input.
+ * s13 removes that input. The new contract is:
+ *
+ *  - The `pseudo` cookie alone (no JWT) is enough for
+ *    ``useAuthStore.hydrate()`` to populate the store. The visible
+ *    effect: the chat / upload pages do not show the "noPseudo"
+ *    warning and the form controls (select, file picker, send
+ *    button) read a valid pseudo from the store. The cookie is
+ *    what the production mirror writes on login (cf. authStore.ts
+ *    ``setTokens`` → ``writePseudoCookie``), and what the legacy
+ *    chat / upload stores read.
+ *
+ *  - The cookie value must match the client regex
+ *    ``^[a-zA-Z0-9_]{3,32}$``. A malformed value (e.g. "!!") is
+ *    stored as-is in the cookie, but the store's ``isValidPseudo``
+ *    gate refuses it, so the upload form still shows the warning.
+ *    (We do not require the store to drop the cookie — the gate
+ *    is the source of truth, and the store's behaviour matches
+ *    ADR 011 § Validation.)
+ *
+ *  - The cookie persists across reload. A reload re-reads the
+ *    cookie on mount via ``hydrate()`` in <Header> and the page
+ *    client; the "noPseudo" warning stays absent.
+ *
+ *  - The mirror path (login → cookie) is exercised by the login
+ *    flow in auth.spec.ts ("login → avatar appears"). A dedicated
+ *    mirror test would duplicate that coverage, so it is omitted
+ *    here. Cf. AGENTS.md § Story efficiency: "A story adds at
+ *    most two new test files." pseudo.spec.ts is a single file.
  */
-test.describe('Header pseudo input', () => {
-  test('has a paired label', async ({ page }) => {
-    await page.goto('/fr/');
-    const input = page.getByLabel('Ton pseudo');
-    await expect(input).toBeVisible();
+const VALID_PSEUDO = 'ali_baba';
+const COOKIE_URL = 'http://localhost:3000';
+
+async function setPseudoCookie(
+  context: import('@playwright/test').BrowserContext,
+  value: string,
+) {
+  await context.addCookies([{ name: 'pseudo', value, url: COOKIE_URL }]);
+}
+
+test.describe('Pseudo identity contract (s13)', () => {
+  test('cookie alone is enough to hydrate a valid pseudo', async ({
+    page,
+    context,
+  }) => {
+    await setPseudoCookie(context, VALID_PSEUDO);
+    await page.goto('/fr/upload');
+    // The "noPseudo" warning is gone — the store's pseudo is valid.
+    await expect(
+      page.getByText('Choisis un pseudo pour commencer'),
+    ).toHaveCount(0);
   });
 
-  test('sets a cookie on blur with a valid pseudo', async ({ page, context }) => {
-    await page.goto('/fr/');
-    const input = page.getByLabel('Ton pseudo');
-    await input.fill('ali_baba');
-    await input.blur();
-    const cookies = await context.cookies();
-    const pseudoCookie = cookies.find((c) => c.name === 'pseudo');
-    expect(pseudoCookie?.value).toBe('ali_baba');
-  });
-
-  test('persists across reload (avatar initial matches)', async ({ page }) => {
-    await page.goto('/fr/');
-    const input = page.getByLabel('Ton pseudo');
-    await input.fill('ali_baba');
-    await input.blur();
+  test('cookie persists across reload', async ({ page, context }) => {
+    await setPseudoCookie(context, VALID_PSEUDO);
+    await page.goto('/fr/upload');
+    // Sanity: hydrated on first load.
+    await expect(
+      page.getByText('Choisis un pseudo pour commencer'),
+    ).toHaveCount(0);
     await page.reload();
-    const inputAfter = page.getByLabel('Ton pseudo');
-    await expect(inputAfter).toHaveValue('ali_baba');
+    // Still hydrated after reload (hydrate() re-reads the cookie).
+    await expect(
+      page.getByText('Choisis un pseudo pour commencer'),
+    ).toHaveCount(0);
   });
 
-  test('marks aria-invalid when the pseudo is malformed', async ({ page }) => {
-    await page.goto('/fr/');
-    const input = page.getByLabel('Ton pseudo');
-    await input.fill('!!');
-    await input.blur();
-    await expect(input).toHaveAttribute('aria-invalid', 'true');
+  test('malformed cookie value does not satisfy the pseudo gate', async ({
+    page,
+    context,
+  }) => {
+    await setPseudoCookie(context, '!!');
+    await page.goto('/fr/upload');
+    // The store reads the cookie as-is, but the regex gate refuses it,
+    // so the upload form still shows the "noPseudo" warning.
+    await expect(
+      page.getByText('Choisis un pseudo pour commencer'),
+    ).toBeVisible();
   });
 });

@@ -1,6 +1,4 @@
-"""Pydantic schemas for the auth API (s12).
-
-Three shapes:
+"""Pydantic schemas for the auth API (s12 + s13).
 
 * :class:`RegisterRequest` — body of ``POST /api/auth/register``. The
   ``password`` field has a custom ``@field_validator`` that enforces
@@ -10,6 +8,9 @@ Three shapes:
 * :class:`RegisterResponse` — successful register (HTTP 201).
 * :class:`RegisterErrorResponse` — 4xx/5xx body. The ``code`` field is
   a stable discriminator for the future frontend (s13).
+* :class:`LoginRequest` / :class:`TokenPairResponse` /
+  :class:`RefreshRequest` / :class:`AuthErrorResponse` (s13) — see
+  the docstrings for each shape.
 """
 
 from __future__ import annotations
@@ -86,3 +87,73 @@ class RegisterErrorResponse(BaseModel):
 
     error: str = Field(..., description="Message d'erreur lisible.")
     code: RegisterErrorCode = Field(..., description="Code machine de l'erreur.")
+
+
+# ---------------------------------------------------------------------------
+# Login / refresh / logout (s13)
+# ---------------------------------------------------------------------------
+
+# Codes returned by ``POST /api/auth/login``, ``/api/auth/refresh``
+# and ``/api/auth/logout``. Aligned with the middleware that raises
+# 401 ``invalid_token`` and 403 ``forbidden`` (see
+# ``app.core.auth.middleware``).
+AuthErrorCode = Literal[
+    "invalid_credentials",
+    "invalid_token",
+    "forbidden",
+    "expired",
+    "token_revoked",
+]
+
+
+class LoginRequest(BaseModel):
+    """Request body for ``POST /api/auth/login``.
+
+    The pseudo pattern is re-validated server-side as defence in
+    depth (the frontend already enforces it for UX). The password
+    is **not** length-bounded here — an overlong password returns
+    401 ``invalid_credentials`` (generic) instead of 422, so the
+    API never leaks the bcrypt limit through the wrong-password
+    path.
+    """
+
+    pseudo: str = Field(
+        ...,
+        min_length=MIN_PSEUDO_CHARS,
+        max_length=MAX_PSEUDO_CHARS,
+        pattern=PSEUDO_PATTERN,
+    )
+    password: str = Field(..., min_length=1, max_length=MAX_PASSWORD_BYTES)
+
+
+class TokenPairResponse(BaseModel):
+    """Successful login / refresh response (HTTP 200).
+
+    ``expires_in`` is in **seconds** (OAuth2 convention) and equals
+    :data:`Settings.jwt_access_token_expire_minutes * 60`. The
+    refresh token's lifetime is not exposed here; the client just
+    has to call ``/refresh`` after the access token expires.
+    """
+
+    access_token: str
+    refresh_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int
+
+
+class RefreshRequest(BaseModel):
+    """Request body for ``POST /api/auth/refresh``."""
+
+    refresh_token: str = Field(..., min_length=1)
+
+
+class AuthErrorResponse(BaseModel):
+    """Failure response body for the login / refresh / logout endpoints.
+
+    The ``code`` is the stable machine discriminator the frontend
+    switches on. The human ``error`` message is intentionally short
+    and never leaks *why* a token is invalid (Piège 2 bis).
+    """
+
+    error: str
+    code: AuthErrorCode

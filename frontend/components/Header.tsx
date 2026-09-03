@@ -1,34 +1,51 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { usePathname } from 'next/navigation';
-import { useAuthStore, isValidPseudo } from '@/lib/stores/authStore';
-import { Label } from './Label';
-import { Input } from './Input';
+import { LogOut } from 'lucide-react';
+import { useAuthStore } from '@/lib/stores/authStore';
+import { apiClient } from '@/lib/api';
 import { LanguageSwitcher } from './LanguageSwitcher';
 
 /*
  * Header — sticky 56px, contains the logo, navigation (tablet+), the
- * LanguageSwitcher, the pseudo input and avatar. The pseudo is mirrored
- * to a cookie via the authStore so that the upload/chat flows in s11b/s11c
- * can read it on the server.
+ * LanguageSwitcher, and the auth affordance.
  *
- * The input is uncontrolled — we hold a ref to the DOM node and only
- * read its `value` on blur. The auth store remains the single source of
- * truth for the committed pseudo, and the avatar initial derives from
- * it. This avoids the setState-in-effect anti-pattern.
+ * s11a shipped a pseudo input here (ADR 011) so the chat/upload
+ * flows could read the identity off a non-HttpOnly cookie. s13
+ * replaces that input with an auth-aware affordance:
+ *
+ *   - if ``useAuthStore.isAuthenticated`` (hydrated + access token
+ *     present) → an avatar circle composed inline + a native
+ *     ``<details>/<summary>`` menu with "Mon espace" and "Se
+ *     déconnecter" (which calls ``POST /api/auth/logout`` then
+ *     ``clearTokens()``);
+ *   - otherwise → a "Se connecter" link that points to /login.
+ *
+ * Design notes (per docs/designs/s13-login-eleve.md):
+ *  - The avatar is composed inline (no new shared component).
+ *  - The menu uses native ``<details>/<summary>`` (no Popover /
+ *    Headless UI dependency).
+ *  - The legacy cookie pseudo is still mirrored on login, so the
+ *    chat / upload flows keep reading ``authStore.pseudo`` without
+ *    a refactor (cf. ADR 011 § Migration).
+ *  - The auth bootstrap endpoints (login, refresh, logout) go
+ *    through ``apiClient``; the logout POST is intentionally not
+ *    gated by a network failure — if the backend is unreachable,
+ *    the local store is still cleared so the user is not stuck.
  */
 export function Header() {
   const t = useTranslations('header');
+  const tAuth = useTranslations('auth.logout');
+
   const pseudo = useAuthStore((s) => s.pseudo);
   const hydrated = useAuthStore((s) => s.hydrated);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hydrate = useAuthStore((s) => s.hydrate);
-  const setPseudo = useAuthStore((s) => s.setPseudo);
+  const clearTokens = useAuthStore((s) => s.clearTokens);
 
-  const [invalid, setInvalid] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname() ?? '';
   const isChatActive = pathname.endsWith('/chat');
   const isUploadActive = pathname.endsWith('/upload');
@@ -37,28 +54,26 @@ export function Header() {
     if (!hydrated) hydrate();
   }, [hydrated, hydrate]);
 
-  // Hydrate the input's value from the cookie on first hydration.
-  useEffect(() => {
-    if (hydrated && inputRef.current && inputRef.current.value !== pseudo) {
-      inputRef.current.value = pseudo;
-    }
-  }, [hydrated, pseudo]);
-
   const initial = pseudo ? pseudo.charAt(0).toUpperCase() : '?';
+  const showAuthed = hydrated && isAuthenticated;
 
-  function commitDraft() {
-    const value = inputRef.current?.value ?? '';
-    const trimmed = value.trim();
-    if (trimmed.length === 0) {
-      setInvalid(false);
-      return;
+  async function handleLogout() {
+    // Snapshot the access token BEFORE clearing so the request
+    // can carry it; ``apiClient`` will add the bearer header
+    // from the live store snapshot at request time.
+    const accessToken = useAuthStore.getState().accessToken;
+    // UI is updated immediately so the avatar disappears while
+    // the network call is in flight.
+    clearTokens();
+    if (!accessToken) return;
+    try {
+      await apiClient.post('/api/auth/logout');
+    } catch {
+      // Logout is best-effort: the local store is already
+      // cleared, the user is signed out from the UI's point of
+      // view. A failed server call (network, 5xx) is logged
+      // upstream by the apiClient; we don't surface it here.
     }
-    if (!isValidPseudo(trimmed)) {
-      setInvalid(true);
-      return;
-    }
-    setPseudo(trimmed);
-    setInvalid(false);
   }
 
   return (
@@ -105,36 +120,46 @@ export function Header() {
           <LanguageSwitcher />
         </div>
 
-        <div className="flex items-center gap-2">
-          <Label htmlFor="header-pseudo" srOnly>
-            {t('pseudoLabel')}
-          </Label>
-          <Input
-            ref={inputRef}
-            id="header-pseudo"
-            name="pseudo"
-            type="text"
-            defaultValue={pseudo}
-            placeholder={t('pseudoLabel')}
-            maxLength={32}
-            invalid={invalid}
-            aria-describedby="header-pseudo-help"
-            onChange={() => {
-              if (invalid) setInvalid(false);
-            }}
-            onBlur={commitDraft}
-            className="w-28 sm:w-36"
-          />
-          <span
-            aria-hidden="true"
-            className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-primary text-white text-sm font-semibold shrink-0"
+        {showAuthed ? (
+          <details className="relative">
+            <summary
+              className="list-none cursor-pointer inline-flex items-center justify-center h-8 w-8 rounded-full bg-primary text-white text-sm font-semibold shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              aria-label={t('avatarAlt', { pseudo })}
+            >
+              <span aria-hidden="true">{initial}</span>
+            </summary>
+            <div
+              className="absolute right-0 mt-2 w-48 bg-surface border border-border rounded-md shadow-kt-default py-1 z-20"
+              role="menu"
+            >
+              <Link
+                href="/chat"
+                className="block px-3 py-2 text-sm text-text-primary hover:bg-surface-subtle focus:outline-none focus-visible:bg-surface-subtle"
+                role="menuitem"
+              >
+                {tAuth('menuLabel')}
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleLogout();
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-error hover:bg-error/10 focus:outline-none focus-visible:bg-error/10 inline-flex items-center gap-2"
+                role="menuitem"
+              >
+                <LogOut size={16} aria-hidden="true" />
+                {tAuth('button')}
+              </button>
+            </div>
+          </details>
+        ) : (
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center h-9 px-3 text-sm font-medium rounded-sm bg-primary text-white hover:bg-primary-strong transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
           >
-            {initial}
-          </span>
-          <span id="header-pseudo-help" className="sr-only">
-            {t('pseudoHelp')}
-          </span>
-        </div>
+            {tAuth('loginCta')}
+          </Link>
+        )}
       </div>
     </header>
   );
