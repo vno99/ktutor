@@ -19,7 +19,7 @@ Créer deux endpoints admin-only (JWT) pour gérer les comptes non-élève et le
 
 ## Tasks (ordered)
 
-1. [ ] **Créer `backend/app/api/users/schemas.py`** avec :
+1. [x] **Créer `backend/app/api/users/schemas.py`** avec :
    - `CreateUserRequest` (hérite des invariants `RegisterRequest` via réutilisation des constantes `MIN_PSEUDO_CHARS`, `MAX_PSEUDO_CHARS`, `PSEUDO_PATTERN`, `MIN_PASSWORD_CHARS`, `MAX_PASSWORD_BYTES` depuis `app.api.auth.schemas`) + champ `role: Literal["parent", "admin"]` (pas `eleve`).
    - `CreateUserResponse(pseudo, role)`.
    - `UpdateRoleRequest(role: Literal["eleve", "parent", "admin"])`.
@@ -28,17 +28,17 @@ Créer deux endpoints admin-only (JWT) pour gérer les comptes non-élève et le
    - `UserErrorResponse(error, code)`.
    - **Vérification** : `python -c "from app.api.users.schemas import CreateUserRequest, UpdateRoleRequest"` passe (test d'import pur, pas de test composant).
 
-2. [ ] **Créer `backend/app/api/users/__init__.py`** (vide, ou `from .router import router` si la convention du projet l'exige — à vérifier en lisant `auth/__init__.py`).
+2. [x] **Créer `backend/app/api/users/__init__.py`** (vide, ou `from .router import router` si la convention du projet l'exige — à vérifier en lisant `auth/__init__.py`).
 
-3. [ ] **Créer `backend/app/api/users/router.py`** avec `APIRouter(prefix="/api/users", tags=["users"])` et deux endpoints :
+3. [x] **Créer `backend/app/api/users/router.py`** avec `APIRouter(prefix="/api/users", tags=["users"])` et deux endpoints :
    - `POST /` : `def create_user(body: CreateUserRequest, admin: User = Depends(require_role(UserRole.ADMIN)), db: Session = Depends(get_db))` — pre-check `func.lower(User.pseudo) == body.pseudo.lower()` (409 `pseudo_taken`), `hash_password(body.password)`, insert `User(pseudo, password_hash, role=body.role_to_userrole())` (helper de conversion `Literal` → `UserRole`), `catch IntegrityError` → 409 (race), 500 sur autre exception. Retourne `CreateUserResponse(pseudo, role)`. Logger `users.create admin={admin} target={pseudo} role={role}`. **Pas de JWT** dans la réponse.
    - `PUT /{pseudo}/role` : `def update_role(pseudo, body: UpdateRoleRequest, admin: User = Depends(require_role(UserRole.ADMIN)), db: Session = Depends(get_db))` — fetch user par `pseudo` (404 `user_not_found` si absent), self-demote check : si `pseudo == admin.pseudo` ET `new_role != UserRole.ADMIN` → count `db.query(User).filter(User.role == UserRole.ADMIN).count()` ; si `count < 1` (après update simulé) raise 409 `self_demote_blocked`. Update + commit, refresh, `logger.info("security.role_change admin={admin} target={pseudo} old={old} new={new}")`. Retourne `UserResponse(pseudo, role)`.
    - **Helper de conversion** : `def _to_userrole(value: Literal["eleve","parent","admin"]) -> UserRole` (mappage strict, lève `ValueError` si input inattendu — sécurité défense en profondeur).
    - **Vérification** : voir tâches 5 et 6.
 
-4. [ ] **Inclure le router dans `backend/app/main.py`** : ajouter `from app.api.users.router import router as users_router` (dans le bloc d'imports ligne 27-30) et `app.include_router(users_router)` après la ligne `app.include_router(auth_router)` ligne 74. **Vérification** : `python -c "from app.main import app; print([r.path for r in app.routes])"` liste `/api/users` et `/api/users/{pseudo}/role`.
+4. [x] **Inclure le router dans `backend/app/main.py`** : ajouter `from app.api.users.router import router as users_router` (dans le bloc d'imports ligne 27-30) et `app.include_router(users_router)` après la ligne `app.include_router(auth_router)` ligne 74. **Vérification** : `python -c "from app.main import app; print([r.path for r in app.routes])"` liste `/api/users` et `/api/users/{pseudo}/role`.
 
-5. [ ] **Tests `POST /api/users`** dans `backend/tests/api/test_users_create.py` (5 classes, ~10 tests) :
+5. [x] **Tests `POST /api/users`** dans `backend/tests/api/test_users_create.py` (5 classes, ~10 tests) :
    - `TestCreateUserHappyPath` : admin crée un parent (201, body conforme, hash bcrypt en DB, role=PARENT), admin crée un admin (201, role=ADMIN).
    - `TestCreateUserAuth` : parent caller → 403 `forbidden`, eleve caller → 403 `forbidden`, no-token → 401 `invalid_token`, junk-token → 401 `invalid_token`.
    - `TestCreateUserValidation` : pseudo trop court → 422, pseudo avec `-` → 422, password 7 chars → 422, password > 72 octets UTF-8 → 422, `role: "eleve"` → 422, `role: "guest"` → 422, body vide → 422.
@@ -46,7 +46,7 @@ Créer deux endpoints admin-only (JWT) pour gérer les comptes non-élève et le
    - `TestCreateUserLoggingHygiene` : aucune log line ne contient le password ou le hash (cf. `test_auth_register.py::TestRegisterLoggingHygiene` ligne 297 — pattern identique).
    - **Vérification** : `pytest backend/tests/api/test_users_create.py -v` → 10/10 pass.
 
-6. [ ] **Tests `PUT /api/users/{pseudo}/role`** dans `backend/tests/api/test_users_role.py` (5 classes, ~10 tests) :
+6. [x] **Tests `PUT /api/users/{pseudo}/role`** dans `backend/tests/api/test_users_role.py` (5 classes, ~10 tests) :
    - `TestUpdateRoleHappyPath` : admin promote eleve → parent (200, role=PARENT en DB, log `security.role_change` présente), admin change parent → admin (200), admin demote parent → eleve (200).
    - `TestUpdateRoleAuth` : parent caller → 403, eleve caller → 403, no-token → 401.
    - `TestUpdateRoleValidation` : `role: "guest"` → 422, body vide → 422.
@@ -55,11 +55,11 @@ Créer deux endpoints admin-only (JWT) pour gérer les comptes non-élève et le
    - `TestUpdateRoleLoggingHygiene` : la log `security.role_change` contient `admin`, `target`, `old`, `new` mais **jamais** le password ou le hash (pas de risque ici mais test pour blinder).
    - **Vérification** : `pytest backend/tests/api/test_users_role.py -v` → 10/10 pass.
 
-7. [ ] **Corriger le drift du docstring `UserRole`** dans `backend/app/core/database/models.py:213-217` : remplacer *"parent and admin are created by an admin-only script (s15)"* par *"parent and admin are created by an admin via POST /api/users (s13b); POST /api/auth/register creates eleve only (s12)."*. **Vérification** : `git diff backend/app/core/database/models.py` montre une seule ligne modifiée.
+7. [x] **Corriger le drift du docstring `UserRole`** dans `backend/app/core/database/models.py:213-217` : remplacer *"parent and admin are created by an admin-only script (s15)"* par *"parent and admin are created by an admin via POST /api/users (s13b); POST /api/auth/register creates eleve only (s12)."*. **Vérification** : `git diff backend/app/core/database/models.py` montre une seule ligne modifiée.
 
-8. [ ] **Run full backend test suite** : `pytest backend/tests/ -v --tb=short` → 0 régression sur les tests existants (s12, s13). **Vérification** : tous les tests `test_auth_*.py` et `test_models.py` et `test_passwords.py` restent verts.
+8. [x] **Run full backend test suite** : `pytest backend/tests/ -v --tb=short` → 0 régression sur les tests existants (s12, s13). **Vérification** : tous les tests `test_auth_*.py` et `test_models.py` et `test_passwords.py` restent verts.
 
-9. [ ] **Lint + typecheck** : `cd backend && ruff check app/ tests/` (zéro nouveau warning) + `mypy app/` (zéro nouvelle erreur). **Vérification** : CI lint job passe.
+9. [x] **Lint + typecheck** : `cd backend && ruff check app/ tests/` (zéro nouveau warning) + `mypy app/` (zéro nouvelle erreur). **Vérification** : CI lint job passe.
 
 10. [ ] **Conventional commit unique** : `feat(api): add /api/users create + role update admin endpoints (s13b)` couvrant tous les fichiers modifiés + créés. Pas de commit par tâche. **Vérification** : `git log -1` montre un seul commit avec tous les fichiers (research + plan + code + tests).
 
