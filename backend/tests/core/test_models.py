@@ -18,6 +18,7 @@ from app.core.database.models import (
     DocumentStatus,
     Exercise,
     ExerciseType,
+    ParentChildLink,
     Subject,
     User,
     UserRole,
@@ -461,3 +462,119 @@ class TestUserModel:
         assert verify_password(plain, user.password_hash) is True
         # And rejects a different password.
         assert verify_password("wrong-horse", user.password_hash) is False
+
+
+class TestParentChildLinkModel:
+    """s14 — ``parent_child_links`` join table (many-to-many between ``User`` rows).
+
+    Carries the contract for the persistence shape:
+
+    * the table name and the column types are stable across the s14
+      router (the router queries by ``func.lower`` over both FK
+      columns, so the schema is the source of truth for that query);
+    * the composite primary key ``(parent_pseudo, child_pseudo)``
+      blocks duplicate links at the DB level (the router pre-check is
+      UX, not security);
+    * the FKs cascade on delete so an admin who removes a user via
+      the DB does not leave orphan links;
+    * there is **no** role constraint on ``child_pseudo`` — a parent
+      can be linked to another parent (sibling-as-parent case),
+      because the story explicitly authorises that.
+    """
+
+    def test_tablename_is_parent_child_links(self) -> None:
+        assert ParentChildLink.__tablename__ == "parent_child_links"
+
+    def test_table_is_registered_in_base_metadata(self) -> None:
+        assert "parent_child_links" in Base.metadata.tables
+
+    def test_create_link_minimal_fields(self, session) -> None:
+        # Pre-condition — the FKs reference ``users.pseudo`` so the
+        # parents and children must exist before the link can be
+        # inserted.
+        session.add_all(
+            [
+                User(
+                    pseudo="pat", password_hash=hash_password("passwordone1"), role=UserRole.PARENT
+                ),
+                User(
+                    pseudo="ali", password_hash=hash_password("passwordtwo2"), role=UserRole.ELEVE
+                ),
+            ]
+        )
+        session.commit()
+
+        link = ParentChildLink(parent_pseudo="pat", child_pseudo="ali")
+        session.add(link)
+        session.commit()
+        session.refresh(link)
+
+        assert link.parent_pseudo == "pat"
+        assert link.child_pseudo == "ali"
+        assert isinstance(link.created_at, datetime)
+
+    def test_composite_pk_rejects_duplicate_link(self, session) -> None:
+        """The same ``(parent_pseudo, child_pseudo)`` pair cannot be inserted twice."""
+        session.add_all(
+            [
+                User(
+                    pseudo="pat", password_hash=hash_password("passwordone1"), role=UserRole.PARENT
+                ),
+                User(
+                    pseudo="ali", password_hash=hash_password("passwordtwo2"), role=UserRole.ELEVE
+                ),
+            ]
+        )
+        session.commit()
+
+        session.add(ParentChildLink(parent_pseudo="pat", child_pseudo="ali"))
+        session.commit()
+
+        session.add(ParentChildLink(parent_pseudo="pat", child_pseudo="ali"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    def test_child_pseudo_has_no_role_constraint(self, session) -> None:
+        """A parent can be linked to another parent (sibling-as-parent case).
+
+        The model must not enforce ``child.role is ELEVE`` — the
+        router does not either, by design (research open question 4).
+        """
+        session.add_all(
+            [
+                User(
+                    pseudo="pat", password_hash=hash_password("passwordone1"), role=UserRole.PARENT
+                ),
+                User(
+                    pseudo="sam", password_hash=hash_password("passwordtwo2"), role=UserRole.PARENT
+                ),
+            ]
+        )
+        session.commit()
+
+        link = ParentChildLink(parent_pseudo="pat", child_pseudo="sam")
+        session.add(link)
+        session.commit()
+        session.refresh(link)
+        assert link.child_pseudo == "sam"
+
+    def test_filter_by_parent_returns_only_matching_links(self, session) -> None:
+        for p, c in [("pat", "ali"), ("pat", "bob"), ("sam", "ali")]:
+            session.add(
+                ParentChildLink(parent_pseudo=p, child_pseudo=c)
+            )
+        session.commit()
+
+        pat_links = (
+            session.query(ParentChildLink)
+            .filter(ParentChildLink.parent_pseudo == "pat")
+            .all()
+        )
+        sam_links = (
+            session.query(ParentChildLink)
+            .filter(ParentChildLink.parent_pseudo == "sam")
+            .all()
+        )
+        assert {l.child_pseudo for l in pat_links} == {"ali", "bob"}
+        assert {l.child_pseudo for l in sam_links} == {"ali"}

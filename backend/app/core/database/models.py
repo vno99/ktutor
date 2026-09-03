@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, Index, Integer, String, func
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -263,6 +263,59 @@ class User(Base):
     def __repr__(self) -> str:  # pragma: no cover - debugging only
         return (
             f"<User pseudo={self.pseudo!r} role={self.role.value}>"
+        )
+
+
+class ParentChildLink(Base):
+    """Many-to-many link between a parent and a child account (s14).
+
+    The story authorises a parent to be linked to **any** other
+    user — including another parent (the "sibling-as-parent" case
+    in a recomposed family) or an admin. There is therefore no role
+    constraint on ``child_pseudo``: only the FK to ``users.pseudo``
+    is enforced. Cycle detection is intentionally absent at the
+    s14 layer — the story says "for the POC, no cycle prevention",
+    and any ``A → B → A`` would still be a valid edge in the
+    composite-graph sense. A follow-up story (s15 or s18b) may
+    revisit the question once the real parent-child workflows land.
+
+    The composite primary key ``(parent_pseudo, child_pseudo)``
+    blocks duplicate links at the DB level: the API router pre-checks
+    before insert (UX), and the constraint catches the race where
+    two concurrent requests pass the pre-check at the same time.
+    The pre-check returns 200 (idempotence), not 409, on a hit.
+
+    No Alembic migration is needed — ``init_db()``
+    (``database/session.py:56``) creates the table via
+    ``Base.metadata.create_all`` and SQLite in-memory tests pick
+    it up at fixture time. The FKs are ``ondelete=CASCADE`` so
+    removing a user cleans up the join table automatically.
+    """
+
+    __tablename__ = "parent_child_links"
+
+    parent_pseudo: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    child_pseudo: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<ParentChildLink parent={self.parent_pseudo!r} "
+            f"child={self.child_pseudo!r}>"
         )
 
 
