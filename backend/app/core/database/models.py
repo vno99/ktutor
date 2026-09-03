@@ -211,9 +211,9 @@ class UserRole(str, enum.Enum):
     """Role discriminator for the ``users`` table.
 
     Aligned with ADR 005 § « register public crée ``eleve`` uniquement »:
-    the ``POST /api/auth/register`` endpoint only ever creates
-    ``eleve`` rows; ``parent`` and ``admin`` are created by an
-    admin-only script (s15).
+    ``parent`` and ``admin`` are created by an admin via
+    ``POST /api/users`` (s13b); ``POST /api/auth/register`` creates
+    ``eleve`` only (s12).
     """
 
     ELEVE = "eleve"
