@@ -185,19 +185,12 @@ def decode_token(token: str, expected_type: TokenType) -> dict[str, Any]:
     if expected_type not in get_args(TokenType):
         raise ValueError(f"expected_type must be one of {get_args(TokenType)!r}")
 
-    try:
-        claims = pyjwt.decode(
-            token,
-            _load_public_key(),
-            algorithms=list(_ALLOWED_ALGORITHMS),
-            options={"require": list(_REQUIRED_CLAIMS)},
-        )
-    except pyjwt.InvalidTokenError:
-        # Let the specific subclass (ExpiredSignatureError,
-        # MissingRequiredClaimError, ...) propagate unchanged so the
-        # router can format the response. We do not log the token
-        # itself here.
-        raise
+    claims = pyjwt.decode(
+        token,
+        _load_public_key(),
+        algorithms=list(_ALLOWED_ALGORITHMS),
+        options={"require": list(_REQUIRED_CLAIMS)},
+    )
 
     if claims.get("type") != expected_type:
         raise pyjwt.InvalidTokenError(
@@ -219,9 +212,9 @@ def decode_token(token: str, expected_type: TokenType) -> dict[str, Any]:
 
 
 __all__ = [
+    "TokenType",
     "create_access_token",
     "create_refresh_token",
     "decode_token",
     "reset_key_cache",
-    "TokenType",
 ]

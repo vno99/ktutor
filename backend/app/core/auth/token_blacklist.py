@@ -47,4 +47,4 @@ def clear() -> None:
     _revoked.clear()
 
 
-__all__ = ["add", "is_revoked", "clear"]
+__all__ = ["add", "clear", "is_revoked"]

@@ -25,8 +25,6 @@ global state; everything is per-request.
 
 from __future__ import annotations
 
-from typing import Iterable
-
 import jwt as pyjwt
 from fastapi import Depends, Header, HTTPException, status
 from loguru import logger

@@ -54,13 +54,12 @@ from loguru import logger
 from sqlalchemy import StaticPool, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.auth.jwt import create_access_token, create_refresh_token
+from app.core.auth.jwt import create_access_token
 from app.core.auth.passwords import hash_password
 from app.core.config import get_settings
 from app.core.database.models import Base, User, UserRole
 from app.core.database.session import get_db
 from app.main import app
-
 
 # ---------------------------------------------------------------------------
 # Keypair fixture — one pair per session, pointed via env.
@@ -251,11 +250,9 @@ class TestTokenLifetimes:
             "/api/auth/login", json={"pseudo": "ali", "password": "correcthorse"}
         )
         access = resp.json()["access_token"]
-        claims = pyjwt.decode(
-            access,
-            get_settings().jwt_public_key_path and open(get_settings().jwt_public_key_path).read(),
-            algorithms=["RS256"],
-        )
+        with open(get_settings().jwt_public_key_path) as _f:
+            public_pem = _f.read()
+        claims = pyjwt.decode(access, public_pem, algorithms=["RS256"])
         assert claims["exp"] - claims["iat"] == 30 * 60
 
     def test_refresh_token_expires_in_7_days(
@@ -265,7 +262,8 @@ class TestTokenLifetimes:
             "/api/auth/login", json={"pseudo": "ali", "password": "correcthorse"}
         )
         refresh = resp.json()["refresh_token"]
-        public_pem = open(get_settings().jwt_public_key_path).read()
+        with open(get_settings().jwt_public_key_path) as _f:
+            public_pem = _f.read()
         claims = pyjwt.decode(refresh, public_pem, algorithms=["RS256"])
         assert claims["exp"] - claims["iat"] == 7 * 86400
 
@@ -508,7 +506,8 @@ class TestRegisterThenLogin:
         body = login.json()
         assert body["token_type"] == "bearer"
         # The token decodes to the same pseudo.
-        public_pem = open(get_settings().jwt_public_key_path).read()
+        with open(get_settings().jwt_public_key_path) as _f:
+            public_pem = _f.read()
         claims = pyjwt.decode(body["access_token"], public_pem, algorithms=["RS256"])
         assert claims["sub"] == "newcomer"
 

@@ -20,16 +20,14 @@ to keep the suite fast.
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
 
-import jwt as pyjwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi import Depends, FastAPI, Header
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import StaticPool, create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -40,7 +38,6 @@ from app.core.auth.middleware import get_current_user, require_role
 from app.core.auth.passwords import hash_password
 from app.core.database.models import Base, User, UserRole
 from app.core.database.session import get_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures — keypair + DB
