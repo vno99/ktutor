@@ -9,9 +9,14 @@ import { useAuthStore, isValidPseudo } from '@/lib/stores/authStore';
 // s10 backend.
 //
 // Backend contract (gelé, ff21046) :
-//   POST /api/documents/upload  FormData(pseudo, subject, file)
+//   POST /api/documents/upload  FormData(subject, file)
+//     (s15 — `pseudo` removed from body; the backend reads it from the
+//      JWT via `Depends(get_current_user)`. apiClient injects
+//      `Authorization: Bearer <token>` from the s13 interceptor.)
 //     201 → { document_id, status: "indexed" | "manual_review_needed",
 //             chunks_count, ocr_confidence }
+//     401 → { error, code: "invalid_token" }   (no JWT / bad JWT)
+//     403 → { error, code: "forbidden" }       (cross-tenant attempt)
 //     413 → { error, code: "invalid_file" }   (taille)
 //     415 → { error, code: "invalid_file" }   (extension)
 //     422 → { error, code: "invalid_pseudo" | "ocr_failure" }
@@ -141,7 +146,6 @@ export const useUploadStore = create<UploadState>((set, get) => ({
     if (!selectedFile || !subject) return;
 
     const formData = new FormData();
-    formData.append('pseudo', pseudo);
     formData.append('subject', subject);
     formData.append('file', selectedFile);
 

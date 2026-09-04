@@ -1,4 +1,4 @@
-"""``POST /api/documents/upload`` — multipart upload endpoint (s10).
+"""``POST /api/documents/upload`` — multipart upload endpoint (s10, s15).
 
 Bridges FastAPI ``UploadFile`` streams to
 :class:`app.services.rag.upload_service.UploadService.upload`. The
@@ -29,6 +29,14 @@ service's error message (it includes the literal ``"extension"`` or
 ``"Taille"`` in each branch — see ``upload_service.py:115-126``). This
 keeps the router decoupled from the service's internals while staying
 deterministic.
+
+s15 — the tenant identity is taken from the JWT
+(``Depends(get_current_user)``); the multipart body no longer carries
+a ``pseudo`` form field (plan s15-restrictions-rbac, ADR 005 §
+« RBAC »). The cross-tenant guard
+``assert_jwt_pseudo_matches_or_403`` is invoked as a defensive
+no-op (it would only fire if a future regression reintroduced a
+``Form(pseudo)`` field).
 """
 
 from __future__ import annotations
@@ -44,11 +52,15 @@ from loguru import logger
 
 from app.api.documents.factory import get_upload_service_dep
 from app.api.documents.schemas import (
-    MAX_PSEUDO_CHARS,
     UploadErrorResponse,
     UploadResponse,
 )
+from app.core.auth.middleware import (
+    assert_jwt_pseudo_matches_or_403,
+    get_current_user,
+)
 from app.core.config import Settings, get_settings
+from app.core.database.models import User
 from app.services.rag.upload_service import (
     UploadError,
     UploadErrorKind,
@@ -91,7 +103,7 @@ def _map_invalid_file_to_status(message: str) -> int:
 )
 async def upload(
     request: Request,
-    pseudo: str = Form(..., min_length=1, max_length=MAX_PSEUDO_CHARS),
+    user: User = Depends(get_current_user),
     subject: Literal["maths", "francais"] = Form(...),
     file: UploadFile = File(...),
     settings: Settings = Depends(get_settings),
@@ -100,14 +112,48 @@ async def upload(
     """Run the full upload pipeline via :class:`UploadService`.
 
     The body is validated by FastAPI BEFORE this handler runs (422
-    on missing field, unknown subject, oversize pseudo, etc.). The
-    handler then performs a defensive size check at two levels
+    on missing field, unknown subject, etc.). The handler then
+    resolves the JWT via :func:`get_current_user` (401 ``invalid_token``
+    on failure) and calls the cross-tenant guard with ``claimed=None``
+    — a defensive no-op now that ``Form(pseudo)`` is retired, but a
+    guard against any future regression that reintroduces the field
+    (plan s15-restrictions-rbac, Tâche 3).
+
+    The handler then performs a defensive size check at two levels
     (``Content-Length`` header, then post-read body length) before
     materializing the file to a tempfile and calling the service.
 
     The service's :class:`UploadError` is mapped to the HTTP layer
     with stable status codes (see module docstring).
     """
+    assert_jwt_pseudo_matches_or_403(user, None, route="/api/documents/upload")
+
+    # s15 hard cut: the body MUST NOT carry a ``pseudo`` form field
+    # (research Piège 1). FastAPI's ``Form()`` / ``File()`` parameter
+    # parsers do not natively reject unknown fields, so we read the
+    # raw form and explicitly reject any field outside the declared
+    # schema. Without this, a client still sending ``Form(pseudo)``
+    # would silently use the JWT pseudo and the s09/s10 hard cut
+    # would be a no-op.
+    form = await request.form()
+    allowed_fields = {"subject", "file"}
+    unknown = set(form.keys()) - allowed_fields
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {
+                    "loc": ("body", sorted(unknown)[0]),
+                    "msg": (
+                        "Champ de formulaire inattendu : "
+                        + ", ".join(sorted(unknown))
+                        + ". Le champ 'pseudo' n'est plus accepté (s15)."
+                    ),
+                    "type": "value_error.extra",
+                }
+            ],
+        )
+
     max_bytes = settings.max_upload_size_mb * 1024 * 1024
 
     # Level 1 — best-effort header check (clients may omit Content-Length).
@@ -159,14 +205,14 @@ async def upload(
 
         # Level 3 — service check (third defense line, Piège 2).
         try:
-            result = service.upload(tmp_path, pseudo, subject)
+            result = service.upload(tmp_path, user.pseudo, subject)
         except UploadError as exc:
             message = str(exc)
             http_status = _status_for_upload_error(exc, message)
             logger.warning(
                 "Upload refused: kind={} pseudo={} message={}",
                 exc.kind.value,
-                pseudo,
+                user.pseudo,
                 message,
             )
             raise HTTPException(

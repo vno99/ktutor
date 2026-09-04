@@ -53,9 +53,10 @@ class ExerciseType(str, enum.Enum):
 class Document(Base):
     """A document uploaded by a student and indexed in their RAG.
 
-    The foreign key to ``users.pseudo`` is documented in string form because
-    the ``users`` table is owned by story s12 (auth). The constraint will be
-    materialised by the s15 Alembic migration.
+    s15 — the ``student_pseudo`` column is now a real FK to
+    ``users.pseudo`` (``ondelete="CASCADE"``). Deleting a user
+    removes their documents automatically; the multi-tenancy
+    contract is enforced at the DB level (last line of defence).
     """
 
     __tablename__ = "documents"
@@ -65,10 +66,10 @@ class Document(Base):
         default=uuid.uuid4,
     )
     student_pseudo: Mapped[str] = mapped_column(
-        String(64),
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        # FK intentionally deferred to s15 migration (users table not yet created).
     )
     subject: Mapped[Subject] = mapped_column(
         Enum(Subject, name="subject_enum", native_enum=False, length=32),
@@ -104,10 +105,10 @@ class Exercise(Base):
     in ``questions`` (JSON); future types (probleme, redaction, flashcards)
     will use ``statement`` / ``expected_answer`` / ``grading_criteria``.
 
-    The foreign key to ``users.pseudo`` is documented in string form because
-    the ``users`` table is owned by story s12 (auth). The FK to ``documents``
-    is also deferred: the constraint will be materialised by the s15
-    Alembic migration.
+    s15 — the ``student_pseudo`` FK to ``users.pseudo`` and the
+    ``document_id`` FK to ``documents.id`` are now real DB constraints
+    (``ondelete="CASCADE"``). The multi-tenancy contract is enforced
+    at the DB level (last line of defence).
     """
 
     __tablename__ = "exercises"
@@ -117,10 +118,10 @@ class Exercise(Base):
         default=uuid.uuid4,
     )
     student_pseudo: Mapped[str] = mapped_column(
-        String(64),
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        # FK intentionally deferred to s15 migration (users table not yet created).
     )
     subject: Mapped[Subject] = mapped_column(
         Enum(Subject, name="subject_enum", native_enum=False, length=32),
@@ -131,7 +132,7 @@ class Exercise(Base):
         nullable=False,
     )
     document_id: Mapped[uuid.UUID] = mapped_column(
-        # FK to ``documents.id`` (deferred to s15).
+        ForeignKey("documents.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -165,10 +166,9 @@ class Attempt(Base):
     is stable across the s04 → s08 stories; no Alembic migration is needed
     because ``init_db()`` applies the full ``Base`` metadata in dev/CI.
 
-    The foreign key to ``users.pseudo`` and to ``exercises.id`` is
-    documented in string form because the ``users`` table is owned by
-    story s12 (auth). The constraints will be materialised by the s15
-    Alembic migration.
+    s15 — the FK to ``exercises.id`` and to ``users.pseudo`` are now
+    real DB constraints (``ondelete="CASCADE"``). The multi-tenancy
+    contract is enforced at the DB level (last line of defence).
     """
 
     __tablename__ = "attempts"
@@ -178,15 +178,15 @@ class Attempt(Base):
         default=uuid.uuid4,
     )
     exercise_id: Mapped[uuid.UUID] = mapped_column(
-        # FK to ``exercises.id`` (deferred to s15).
+        ForeignKey("exercises.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     student_pseudo: Mapped[str] = mapped_column(
-        String(64),
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        # FK intentionally deferred to s15 migration (users table not yet created).
     )
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
     is_success: Mapped[bool] = mapped_column(nullable=False)

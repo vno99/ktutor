@@ -19,6 +19,13 @@ The supervisor is built once per request via a FastAPI dependency that
 defers to :func:`app.services.agents.factory.build_subject_supervisor`.
 Building per-request is fine for s09 (no auth, no cache) — a future
 story can pool the supervisor if benchmarks warrant it.
+
+s15 — the tenant identity comes from the JWT
+(``Depends(get_current_user)``); the body no longer carries a
+``pseudo`` (plan s15-restrictions-rbac, ADR 005). The cross-tenant
+guard ``assert_jwt_pseudo_matches_or_403`` is invoked as a defensive
+no-op (it would only fire if a future regression reintroduced a
+``body.pseudo`` field).
 """
 
 from __future__ import annotations
@@ -30,7 +37,12 @@ from fastapi.responses import StreamingResponse
 
 from app.api.chat.schemas import ChatStreamRequest
 from app.api.chat.sse import format_sse
+from app.core.auth.middleware import (
+    assert_jwt_pseudo_matches_or_403,
+    get_current_user,
+)
 from app.core.config import Settings, get_settings
+from app.core.database.models import User
 from app.services.agents import SubjectSupervisor
 from app.services.agents.factory import build_subject_supervisor
 
@@ -64,25 +76,29 @@ def _map_code(exc: ValueError) -> str:
 @router.post("/stream")
 async def stream_chat(
     body: ChatStreamRequest,
+    user: User = Depends(get_current_user),
     supervisor: SubjectSupervisor = Depends(_build_supervisor_dep),
     settings: Settings = Depends(get_settings),
 ) -> StreamingResponse:
     """Stream the agent's response as SSE.
 
     The body is validated by Pydantic BEFORE this handler runs (422
-    on bad input, never an opened stream). The handler itself never
-    inspects ``body`` for anything other than the three fields the
-    supervisor needs — keeping the router thin lets the rule about
-    passing ``body.pseudo`` to the supervisor live in exactly one
-    place.
+    on bad input, never an opened stream). The handler then
+    resolves the JWT via :func:`get_current_user` (401 ``invalid_token``
+    on failure) and calls the cross-tenant guard with
+    ``claimed=None`` — a defensive no-op now that ``body.pseudo``
+    is retired, but a guard against any future regression that
+    reintroduces the field (plan s15-restrictions-rbac, Tâche 2).
     """
+    assert_jwt_pseudo_matches_or_403(user, None, route="/api/chat/stream")
+
     max_chunks = settings.chat_stream_max_chunks
 
     async def event_generator() -> AsyncIterator[bytes]:
         try:
             chunk_count = 0
             async for event in supervisor.astream(
-                body.subject, body.pseudo, body.question
+                body.subject, user.pseudo, body.question
             ):
                 chunk_count += 1
                 if chunk_count > max_chunks:
