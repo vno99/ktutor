@@ -118,6 +118,10 @@
     "layout": {
       "title": "My dashboard"
     },
+    "nav": {
+      "eleve": "Dashboard",
+      "parent": "My children"
+    },
     "eleve": {
       "title": "My dashboard",
       "subtitle": "Your progress, by subject.",
@@ -143,6 +147,31 @@
       "retry": "Retry",
       "reconnect": "Sign in again",
       "loading": "Loading your dashboard…"
+    },
+    "parent": {
+      "listTitle": "My children",
+      "listSubtitle": "Track the progress of each of your children.",
+      "readOnly": "Parent view — read-only",
+      "readOnlyAria": "Read-only mode: you can view your children's data but not modify it.",
+      "linkedSince": "Linked since {date}",
+      "successRate": "Success rate",
+      "noActivity": "No activity yet",
+      "refreshList": "Refresh list",
+      "refreshingList": "Refreshing…",
+      "emptyTitle": "No children linked to your account.",
+      "emptySubtitle": "Ask an administrator to link a child to your account to track their progress.",
+      "error403Role": "Access denied. This page is for parents only.",
+      "backHome": "Back to home",
+      "backToList": "Back to list",
+      "detailTitle": "Progress of {child}",
+      "detailReadOnly": "Parent view — read-only · {child}",
+      "cardAria": "Go to {child}'s dashboard",
+      "detail403": "Access denied. This child is not linked to your account.",
+      "loadingList": "Loading your children…",
+      "loadingDetail": "Loading {child}'s dashboard…",
+      "refresh": "Refresh",
+      "refreshing": "Refreshing…",
+      "retry": "Retry"
     }
   }
 }

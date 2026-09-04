@@ -36,10 +36,11 @@ from __future__ import annotations
 import jwt as pyjwt
 from fastapi import Depends, Header, HTTPException, status
 from loguru import logger
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.auth.jwt import decode_token
-from app.core.database.models import User, UserRole
+from app.core.database.models import ParentChildLink, User, UserRole
 from app.core.database.session import get_db
 
 # 401 detail body — generic on purpose. The ``code`` discriminator
@@ -143,7 +144,12 @@ def require_role(*allowed: UserRole):
     return _dep
 
 
-__all__ = ["assert_jwt_pseudo_matches_or_403", "get_current_user", "require_role"]
+__all__ = [
+    "assert_jwt_pseudo_matches_or_403",
+    "assert_parent_linked_to_child_or_403",
+    "get_current_user",
+    "require_role",
+]
 
 
 def assert_jwt_pseudo_matches_or_403(
@@ -191,6 +197,80 @@ def assert_jwt_pseudo_matches_or_403(
         logger.debug(
             "auth.middleware.admin_bypass pseudo={} route={}", user.pseudo, route
         )
+        return
+
+    logger.info(
+        "security.cross_tenant_attempt caller={} claimed={} role={} route={}",
+        user.pseudo,
+        claimed,
+        user.role.value,
+        route,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=dict(_FORBIDDEN_DETAIL),
+    )
+
+
+def assert_parent_linked_to_child_or_403(
+    user: User,
+    claimed: str | None,
+    *,
+    route: str,
+    db: Session,
+) -> None:
+    """Enforce that the parent in the JWT is linked to ``claimed``.
+
+    The cross-tenant guard for the parent dashboard (s17,
+    plan ``s17-dashboard-parent``). Endpoints that accept a
+    ``child_pseudo`` in the URL or query (e.g. the child-detail
+    view) call this helper with the value they received. The
+    rule differs from :func:`assert_jwt_pseudo_matches_or_403`
+    in that the link is **relational** — it lives in
+    :class:`ParentChildLink`, not on :class:`User.pseudo`. A
+    ``db`` session is therefore required.
+
+    Branches:
+
+    * ``claimed is None`` — the endpoint did not receive a
+      ``child_pseudo`` (e.g. ``GET /api/dashboard/parent``
+      aggregates *all* linked children). No-op.
+    * ``claimed.lower() == user.pseudo.lower()`` — the parent
+      asks for their own dashboard. Allowed (s14 docstring
+      says a parent may be linked to any other user including
+      another parent, and a parent may want to look at their
+      own data). No-op.
+    * ``user.role is UserRole.ADMIN`` — bypass (ADR 005). The
+      DEBUG line ``auth.middleware.admin_bypass`` is emitted.
+    * **DB lookup**: ``SELECT * FROM parent_child_links WHERE
+      parent_pseudo = :user AND child_pseudo = :claimed``. Hit
+      → no-op. Miss → INFO log
+      ``security.cross_tenant_attempt`` carrying ``caller``,
+      ``claimed``, ``role`` and ``route`` (no token, no jti,
+      no body — AGENTS.md § Backend logging), and 403
+      ``forbidden``.
+    """
+    if claimed is None:
+        return
+
+    if claimed.lower() == user.pseudo.lower():
+        return
+
+    if user.role is UserRole.ADMIN:
+        logger.debug(
+            "auth.middleware.admin_bypass pseudo={} route={}", user.pseudo, route
+        )
+        return
+
+    link = (
+        db.query(ParentChildLink)
+        .filter(
+            func.lower(ParentChildLink.parent_pseudo) == user.pseudo.lower(),
+            func.lower(ParentChildLink.child_pseudo) == claimed.lower(),
+        )
+        .one_or_none()
+    )
+    if link is not None:
         return
 
     logger.info(

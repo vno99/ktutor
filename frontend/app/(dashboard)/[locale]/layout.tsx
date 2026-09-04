@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { routing } from '@/i18n/routing';
 import { AuthGuard } from './AuthGuard';
+import { DashboardShell } from './DashboardShell';
 
 /*
  * Layout for the (dashboard) routes, locale-prefixed (s16).
@@ -37,9 +38,7 @@ export default async function DashboardLayout({
   return (
     <NextIntlClientProvider locale={locale} messages={messages}>
       <AuthGuard>
-        <main id="main" className="min-h-[calc(100vh-3.5rem)] bg-canvas">
-          {children}
-        </main>
+        <DashboardShell>{children}</DashboardShell>
       </AuthGuard>
     </NextIntlClientProvider>
   );
