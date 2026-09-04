@@ -1,10 +1,8 @@
-"""Tests for ``POST /api/documents/upload`` (s10).
+"""Tests for ``POST /api/documents/upload`` (s10, s15).
 
-The suite covers every acceptance criterion in the story plus the
-mandatory bite tests (anti-regression). The router is the only new
-code; the rest of the pipeline is the same :class:`UploadService` the
-CLI invokes (AC4), so the test suite focuses on the HTTP-layer
-decisions the router owns:
+The suite covers every acceptance criterion in the original story
+plus the s15 cross-tenant bite required by the repo Definition
+of Done (AGENTS.md):
 
 * multipart parsing + Pydantic validation (AC1, T3.8, T3.9),
 * success response shape (AC2, T3.1) and ``manual_review_needed``
@@ -17,6 +15,17 @@ decisions the router owns:
 * multi-tenant isolation at the service boundary (AC7, T3.12),
 * CORS preflight behaviour (T3.13, T3.14) — inherited from s09,
   verified here so a regression on the middleware cannot slip through.
+
+The s15 migration replaces ``Form(pseudo)`` with a JWT-derived
+identity. The :class:`TestDocumentsUploadJwtRequired` and
+:class:`TestDocumentsUploadCrossTenant` classes prove the
+migration:
+
+* 401 ``invalid_token`` when the bearer is missing / junk / expired,
+* 422 from FastAPI when the client still sends ``Form(pseudo)``
+  (s15 hard cut — research Piège 1),
+* 201 with the JWT pseudo in the persisted row when the body is
+  clean.
 
 Most tests use :func:`documents_client` + :func:`upload_service_stub`
 to keep the suite fast and deterministic. The cross-tenant test
@@ -33,14 +42,24 @@ import io
 import os
 import tempfile
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import chromadb
 import httpx
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi.testclient import TestClient
+from sqlalchemy import StaticPool, create_engine
+from sqlalchemy.orm import sessionmaker
 
-from app.core.database.models import DocumentStatus
+from app.core.auth.jwt import create_access_token
+from app.core.auth.passwords import hash_password
+from app.core.database.models import Base, DocumentStatus, User, UserRole
+from app.core.database.session import get_db
+from app.main import app
 from app.services.rag.chroma_store import ChromaStore
 from app.services.rag.ingestion import DocumentIngestor
 from app.services.rag.ocr import MultimodalOcr
@@ -52,6 +71,176 @@ from app.services.rag.upload_service import (
 )
 from app.services.storage.minio_client import MinioClient
 from tests.services.storage.test_s3_client import FakeS3
+
+# ---------------------------------------------------------------------------
+# s15 JWT fixtures (duplicated from test_chat_stream / test_users_create
+# per AGENTS.md « Pas de refactor transverse »). The upload endpoint
+# now requires ``Depends(get_current_user)`` so the tests must seed
+# a real User row whose pseudo the JWT can carry.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def rsa_keypair(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    tmp = tmp_path_factory.mktemp("jwt_keys_documents")
+    private_path = tmp / "jwt_private.pem"
+    public_path = tmp / "jwt_public.pem"
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key = private_key.public_key()
+    private_path.write_bytes(
+        private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+    )
+    public_path.write_bytes(
+        public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    )
+    return {"private": private_path, "public": public_path}
+
+
+@pytest.fixture(autouse=True)
+def _point_settings(
+    monkeypatch: pytest.MonkeyPatch, rsa_keypair: dict[str, Path]
+) -> None:
+    monkeypatch.setenv("JWT_PRIVATE_KEY_PATH", str(rsa_keypair["private"]))
+    monkeypatch.setenv("JWT_PUBLIC_KEY_PATH", str(rsa_keypair["public"]))
+    monkeypatch.setenv("JWT_ALGORITHM", "RS256")
+    monkeypatch.setenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+    monkeypatch.setenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7")
+    # Force an in-memory SQLite so the lifespan ``init_db()`` does
+    # not try to dial a PostgreSQL server that may not be reachable
+    # in CI. The fixture's ``db_engine`` ignores this and creates
+    # its own engine; this is only for the lifespan.
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+
+
+@pytest.fixture()
+def db_engine():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture()
+def session_factory(db_engine):
+    return sessionmaker(bind=db_engine, autoflush=False, expire_on_commit=False)
+
+
+@pytest.fixture()
+def jwt_client(
+    session_factory,
+    override_upload_service: None,
+) -> Iterator[TestClient]:
+    """A TestClient bound to an isolated in-memory SQLite + the
+    stub upload service. The ``get_db`` dependency is overridden
+    so each request sees the seeded users."""
+
+    def _override_get_db() -> Iterator:
+        s = session_factory()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_db] = _override_get_db
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture()
+def documents_client(
+    session_factory,
+    override_upload_service: None,
+) -> Iterator[TestClient]:
+    """A TestClient bound to an isolated in-memory SQLite (so the
+    ``get_current_user`` resolver can find seeded users) plus the
+    stub upload service. s15 replacement for the s10
+    ``documents_client`` — auth is now mandatory, so the DB must
+    be wired even for tests that don't explicitly use the bearer.
+    The CORS preflight tests still pass because OPTIONS does not
+    trigger the auth dependency.
+    """
+
+    def _override_get_db() -> Iterator:
+        s = session_factory()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_db] = _override_get_db
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture()
+def seeded_eleve_bob(session_factory) -> User:
+    with session_factory() as db:
+        user = User(
+            pseudo="bob",
+            password_hash=hash_password("studentpassword"),
+            role=UserRole.ELEVE,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+
+@pytest.fixture()
+def seeded_eleve_alice(session_factory) -> User:
+    """The default ``alice`` used by the s10 happy-path tests.
+    Picked up by ``documents_client`` indirectly via
+    ``override_upload_service`` -> jwt_client.
+    """
+    with session_factory() as db:
+        user = User(
+            pseudo="alice",
+            password_hash=hash_password("studentpassword"),
+            role=UserRole.ELEVE,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+
+@pytest.fixture()
+def seeded_admin(session_factory) -> User:
+    with session_factory() as db:
+        user = User(
+            pseudo="boss",
+            password_hash=hash_password("adminpassword"),
+            role=UserRole.ADMIN,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+
+def _bearer(user: User) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token(user.pseudo, user.role)}"}
+
 
 # ---------------------------------------------------------------------------
 # Local doubles (used by the cross-tenant test which wires the real
@@ -150,7 +339,11 @@ def _build_real_upload_service(
 
 class TestMultipartAcceptance:
     def test_upload_accepts_multipart_with_pdf(
-        self, documents_client, upload_service_stub, sample_pdf_path: Path
+        self,
+        documents_client,
+        upload_service_stub,
+        sample_pdf_path: Path,
+        seeded_eleve_alice: User,
     ) -> None:
         """AC1 + AC5: a valid PDF upload is accepted and answered 201.
 
@@ -159,11 +352,9 @@ class TestMultipartAcceptance:
         with sample_pdf_path.open("rb") as fh:
             response = documents_client.post(
                 "/api/documents/upload",
-                data={
-                    "pseudo": "alice",
-                    "subject": "maths",
-                },
+                data={"subject": "maths"},
                 files={"file": (sample_pdf_path.name, fh, "application/pdf")},
+                headers=_bearer(seeded_eleve_alice),
             )
         assert response.status_code == 201, response.text
         body = response.json()
@@ -171,7 +362,8 @@ class TestMultipartAcceptance:
         assert body["status"] == "indexed"
         assert body["chunks_count"] >= 1
         # The router must have invoked the (stub) service once with the
-        # body's pseudo and the tempfile path.
+        # JWT pseudo (s15: the body no longer carries ``pseudo``) and
+        # the tempfile path.
         assert len(upload_service_stub.calls) == 1
         _path, pseudo, subject = upload_service_stub.calls[0]
         assert pseudo == "alice"
@@ -192,7 +384,7 @@ class TestMultipartAcceptance:
 
 class TestSuccessResponse:
     def test_upload_returns_201_with_id_status_chunks(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """AC2 bite: the response carries ``status`` mirroring the
         service's :class:`DocumentStatus` value. Hardcoding
@@ -201,8 +393,9 @@ class TestSuccessResponse:
         pdf_bytes = b"%PDF-1.4\n%fake\n"
         response = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "maths"},
+            data={"subject": "maths"},
             files={"file": ("cours.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response.status_code == 201
         body = response.json()
@@ -213,7 +406,7 @@ class TestSuccessResponse:
         assert body["chunks_count"] >= 0
 
     def test_upload_returns_201_for_manual_review_needed(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """AC2 (Piège 7): when the service returns MANUAL_REVIEW_NEEDED,
         the router still answers 201 (success HTTP), with the
@@ -232,8 +425,9 @@ class TestSuccessResponse:
         )
         response = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "maths"},
+            data={"subject": "maths"},
             files={"file": ("flou.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response.status_code == 201
         body = response.json()
@@ -249,7 +443,7 @@ class TestSuccessResponse:
 
 class TestFailureMapping:
     def test_upload_oversize_returns_413(
-        self, documents_client, upload_service_stub, monkeypatch
+        self, documents_client, upload_service_stub, monkeypatch, seeded_eleve_alice: User
     ) -> None:
         """AC3 + AC6 (Piège 2): a 25 MB upload is rejected with 413.
 
@@ -274,8 +468,9 @@ class TestFailureMapping:
             big = b"\0" * (2 * 1024 * 1024)
             response = documents_client.post(
                 "/api/documents/upload",
-                data={"pseudo": "alice", "subject": "maths"},
+                data={"subject": "maths"},
                 files={"file": ("big.pdf", io.BytesIO(big), "application/pdf")},
+                headers=_bearer(seeded_eleve_alice),
             )
         finally:
             config_module._settings = None
@@ -293,7 +488,7 @@ class TestFailureMapping:
         assert upload_service_stub.calls == []
 
     def test_upload_unsupported_extension_returns_415(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """AC3 (Piège 11): an upload with an unsupported extension is
         rejected with 415 (Unsupported Media Type) and code
@@ -306,8 +501,9 @@ class TestFailureMapping:
         )
         response = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "maths"},
+            data={"subject": "maths"},
             files={"file": ("bad.exe", io.BytesIO(b"MZ"), "application/octet-stream")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response.status_code == 415
         body = response.json()
@@ -315,7 +511,7 @@ class TestFailureMapping:
         assert "extension" in body["detail"]["error"].lower()
 
     def test_upload_invalid_pseudo_returns_422(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """AC3 (Piège 6): a service-raised ``INVALID_PSEUDO`` maps to
         422. A regression that did not catch ``UploadError`` would
@@ -327,15 +523,16 @@ class TestFailureMapping:
         )
         response = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "ali ce", "subject": "maths"},
+            data={"subject": "maths"},
             files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response.status_code == 422
         body = response.json()
         assert body["detail"]["code"] == UploadErrorKind.INVALID_PSEUDO.value
 
     def test_upload_ocr_failure_returns_422(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """AC3 (Piège 11): a service-raised ``OCR_FAILURE`` maps to 422.
         """
@@ -344,15 +541,16 @@ class TestFailureMapping:
         )
         response = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "maths"},
+            data={"subject": "maths"},
             files={"file": ("x.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response.status_code == 422
         body = response.json()
         assert body["detail"]["code"] == UploadErrorKind.OCR_FAILURE.value
 
     def test_upload_storage_failure_returns_500(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """AC3 (Piège 11): a service-raised ``STORAGE_FAILURE`` maps
         to 500. S3 or DB unreachable is an infra failure, not a
@@ -363,8 +561,9 @@ class TestFailureMapping:
         )
         response = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "maths"},
+            data={"subject": "maths"},
             files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response.status_code == 500
         body = response.json()
@@ -378,14 +577,15 @@ class TestFailureMapping:
 
 class TestRequestValidation:
     def test_upload_missing_file_field_returns_422(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """AC1: a request without the ``file`` form field is rejected
         by Pydantic with 422 BEFORE the handler runs.
         """
         response = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "maths"},
+            data={"subject": "maths"},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response.status_code == 422
         body = response.json()
@@ -396,15 +596,16 @@ class TestRequestValidation:
         assert upload_service_stub.calls == []
 
     def test_upload_invalid_subject_returns_422(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """Piège 5: ``subject`` outside ``{"maths", "francais"}`` is
         rejected by Pydantic's ``Literal`` with 422.
         """
         response = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "physique"},
+            data={"subject": "physique"},
             files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response.status_code == 422
         # The service was never called.
@@ -448,7 +649,7 @@ class TestSharedService:
 
 class TestTempfileCleanup:
     def test_upload_does_not_leave_tempfile(
-        self, documents_client, upload_service_stub
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
     ) -> None:
         """Risque 1: the router MUST ``os.unlink`` the tempfile in
         its ``finally`` block — both on success and on a controlled
@@ -473,8 +674,9 @@ class TestTempfileCleanup:
         # Happy path — must not leak.
         response_ok = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "maths"},
+            data={"subject": "maths"},
             files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response_ok.status_code == 201
         after_ok = set(_count())
@@ -489,8 +691,9 @@ class TestTempfileCleanup:
         )
         response_err = documents_client.post(
             "/api/documents/upload",
-            data={"pseudo": "alice", "subject": "maths"},
+            data={"subject": "maths"},
             files={"file": ("bad.exe", io.BytesIO(b"MZ"), "application/octet-stream")},
+            headers=_bearer(seeded_eleve_alice),
         )
         assert response_err.status_code == 415
         after_err = set(_count())
@@ -505,19 +708,34 @@ class TestTempfileCleanup:
 
 class TestCrossTenant:
     def test_pseudo_a_upload_not_visible_to_pseudo_b(
-        self, sample_pdf_path: Path
+        self,
+        sample_pdf_path: Path,
+        session_factory,
     ) -> None:
-        """AC7: a document uploaded for ``pseudo_a`` is indexed in
-        the ``rag_<subject>_<pseudo_a>`` ChromaDB collection and
-        nowhere else. ``pseudo_b``'s collection has 0 documents.
-
-        The test wires the real :class:`UploadService` (not the stub)
-        so it exercises the full pipeline up to ChromaDB indexing.
+        """AC7 (s15): a document uploaded as ``pseudo_a`` (JWT) is
+        indexed in the ``rag_<subject>_<pseudo_a>`` ChromaDB
+        collection and nowhere else. ``pseudo_b``'s collection has
+        0 documents. The test wires the real :class:`UploadService`
+        (not the stub) so it exercises the full pipeline up to
+        ChromaDB indexing.
         """
         from fastapi.testclient import TestClient
 
         from app.api.documents.factory import get_upload_service_dep
+        from app.core.auth.jwt import create_access_token
         from app.main import app
+
+        # Seed two users so the JWT resolver can find them.
+        for pseudo, role in [("pseudo_a", UserRole.ELEVE), ("pseudo_b", UserRole.ELEVE)]:
+            with session_factory() as db:
+                db.add(
+                    User(
+                        pseudo=pseudo,
+                        password_hash=hash_password("pw"),
+                        role=role,
+                    )
+                )
+                db.commit()
 
         # One shared in-memory ChromaDB so the two collections live
         # in the same backing store (the real one).
@@ -526,15 +744,28 @@ class TestCrossTenant:
             chroma_client=chroma_client
         )
 
+        def _override_get_db() -> Iterator:
+            s = session_factory()
+            try:
+                yield s
+            finally:
+                s.close()
+
         app.dependency_overrides[get_upload_service_dep] = lambda: service
+        app.dependency_overrides[get_db] = _override_get_db
         try:
             with TestClient(app) as c:
                 with sample_pdf_path.open("rb") as fh:
                     resp_a = c.post(
                         "/api/documents/upload",
-                        data={"pseudo": "pseudo_a", "subject": "maths"},
+                        data={"subject": "maths"},
                         files={
                             "file": (sample_pdf_path.name, fh, "application/pdf"),
+                        },
+                        headers={
+                            "Authorization": (
+                                f"Bearer {create_access_token('pseudo_a', UserRole.ELEVE)}"
+                            )
                         },
                     )
                 assert resp_a.status_code == 201, resp_a.text
@@ -542,9 +773,14 @@ class TestCrossTenant:
                 with sample_pdf_path.open("rb") as fh:
                     resp_b = c.post(
                         "/api/documents/upload",
-                        data={"pseudo": "pseudo_b", "subject": "maths"},
+                        data={"subject": "maths"},
                         files={
                             "file": (sample_pdf_path.name, fh, "application/pdf"),
+                        },
+                        headers={
+                            "Authorization": (
+                                f"Bearer {create_access_token('pseudo_b', UserRole.ELEVE)}"
+                            )
                         },
                     )
                 assert resp_b.status_code == 201, resp_b.text
@@ -575,6 +811,7 @@ class TestCrossTenant:
             )
         finally:
             app.dependency_overrides.pop(get_upload_service_dep, None)
+            app.dependency_overrides.pop(get_db, None)
 
 
 # ---------------------------------------------------------------------------
@@ -624,3 +861,170 @@ class TestCors:
         assert "access-control-allow-origin" not in {
             k.lower() for k in response.headers
         }
+
+
+# ---------------------------------------------------------------------------
+# s15 — JWT is required, body must not carry ``pseudo`` (hard cut)
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentsUploadJwtRequired:
+    def test_missing_authorization_returns_401(
+        self, documents_client, upload_service_stub
+    ) -> None:
+        """AC5 (s15): a request with no ``Authorization`` header is
+        rejected with 401 ``invalid_token`` BEFORE the handler
+        runs. The upload service is NOT called.
+        """
+        response = documents_client.post(
+            "/api/documents/upload",
+            data={"subject": "maths"},
+            files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+        )
+        assert response.status_code == 401, response.text
+        body = response.json()
+        assert body["detail"]["code"] == "invalid_token"
+        assert upload_service_stub.calls == []
+
+    def test_junk_bearer_returns_401(
+        self, documents_client, upload_service_stub
+    ) -> None:
+        """AC5 (s15): a malformed bearer token is rejected with
+        401 ``invalid_token``. A regression that accepts any
+        string starting with ``Bearer `` would let an attacker
+        forge the pseudo.
+        """
+        response = documents_client.post(
+            "/api/documents/upload",
+            data={"subject": "maths"},
+            files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers={"Authorization": "Bearer not-a-real-jwt"},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "invalid_token"
+        assert upload_service_stub.calls == []
+
+    def test_unknown_pseudo_in_valid_jwt_returns_401(
+        self, documents_client, upload_service_stub
+    ) -> None:
+        """AC5 (s15): a JWT signed by the local key but carrying an
+        unknown pseudo is rejected with 401 — the user must exist
+        in the database. A regression that trusted the JWT ``sub``
+        blindly would let an attacker reference any pseudo.
+        """
+        from app.core.auth.jwt import create_access_token
+
+        # No User row seeded for ``ghost``. The token is valid
+        # cryptographically but the resolver can't find the user.
+        token = create_access_token("ghost", UserRole.ELEVE)
+        response = documents_client.post(
+            "/api/documents/upload",
+            data={"subject": "maths"},
+            files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "invalid_token"
+        assert upload_service_stub.calls == []
+
+    def test_body_pseudo_field_is_rejected_with_422(
+        self, documents_client, upload_service_stub, seeded_eleve_alice: User
+    ) -> None:
+        """AC5 (s15 hard cut, research Piège 1): a client that still
+        sends ``Form(pseudo=...)`` is rejected by FastAPI with 422
+        BEFORE the handler runs. The form field is no longer
+        declared on the endpoint — the only known client is the
+        frontend shipped in the same repo (s11c), so a hard cut is
+        safe.
+        """
+        response = documents_client.post(
+            "/api/documents/upload",
+            data={"pseudo": "alice", "subject": "maths"},
+            files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers=_bearer(seeded_eleve_alice),
+        )
+        assert response.status_code == 422, response.text
+        body = response.json()
+        # The detail list must contain a Pydantic-form error pointing
+        # at the unknown ``pseudo`` field. FastAPI / python-multipart
+        # surface it as either ``"pseudo"`` (Form extra) or via the
+        # generic value-error path. Accept either — the contract is
+        # ``422 + no upload took place``.
+        assert "detail" in body
+        assert upload_service_stub.calls == []
+
+
+class TestDocumentsUploadCrossTenant:
+    def test_jwt_pseudo_overrides_body_pseudo(
+        self,
+        documents_client,
+        upload_service_stub,
+        seeded_eleve_alice: User,
+        seeded_eleve_bob: User,
+    ) -> None:
+        """AC2 (s15): when the JWT says ``alice`` and the body has no
+        ``pseudo`` (s15 hard cut), the service is invoked with
+        ``alice`` — never ``bob``, never the URL, never the
+        multipart payload. A regression that still used the body
+        or any other source would be caught here.
+        """
+        response = documents_client.post(
+            "/api/documents/upload",
+            data={"subject": "maths"},
+            files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers=_bearer(seeded_eleve_alice),
+        )
+        assert response.status_code == 201, response.text
+        assert len(upload_service_stub.calls) == 1
+        _path, pseudo, subject = upload_service_stub.calls[0]
+        assert pseudo == "alice"
+        assert subject == "maths"
+
+    def test_bob_token_uploads_for_bob_not_alice(
+        self,
+        documents_client,
+        upload_service_stub,
+        seeded_eleve_alice: User,
+        seeded_eleve_bob: User,
+    ) -> None:
+        """AC2 (s15): two requests, two JWTs, two pseudos. The
+        service is invoked once per request with the correct
+        pseudo. A regression that hardcoded ``alice`` would pass
+        the previous test and fail this one.
+        """
+        for user, expected in [
+            (seeded_eleve_alice, "alice"),
+            (seeded_eleve_bob, "bob"),
+        ]:
+            response = documents_client.post(
+                "/api/documents/upload",
+                data={"subject": "maths"},
+                files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+                headers=_bearer(user),
+            )
+            assert response.status_code == 201, response.text
+        pseudos = [c[1] for c in upload_service_stub.calls]
+        assert pseudos == ["alice", "bob"]
+
+    def test_admin_token_still_uploads_with_admin_pseudo(
+        self,
+        documents_client,
+        upload_service_stub,
+        seeded_admin: User,
+    ) -> None:
+        """ADR 005: an admin can upload on their own behalf (the
+        admin ``sub`` is used as the pseudo). The admin-bypass
+        only matters when a non-admin claims to be a different
+        user — uploading as the admin themselves uses the admin
+        pseudo.
+        """
+        response = documents_client.post(
+            "/api/documents/upload",
+            data={"subject": "maths"},
+            files={"file": ("x.pdf", io.BytesIO(b"%PDF-1.4\n"), "application/pdf")},
+            headers=_bearer(seeded_admin),
+        )
+        assert response.status_code == 201, response.text
+        assert len(upload_service_stub.calls) == 1
+        _path, pseudo, _subject = upload_service_stub.calls[0]
+        assert pseudo == "boss"

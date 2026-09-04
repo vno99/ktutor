@@ -21,13 +21,12 @@ import {
  *  - {done, sources}   → mark the assistant message complete + attach sources
  *  - {error, code}     → attach the error to the assistant message and stop
  *
- * Multi-tenancy: the tenant key is read from useAuthStore.getState().pseudo
- * (cookie-backed, ADR 011). The client regex is ^[a-zA-Z0-9_]{3,32}$ (3-32
- * chars) which is tighter than the backend ^[a-zA-Z0-9_]+$ (1-32). This is
- * intentional: UI rejects short pseudos before they leave the browser; the
- * backend still validates independently. A direct curl with a 1-char pseudo
- * would slip past the client and pass the backend — that is a pre-JWT
- * accepted risk, refactored in s15.
+ * Multi-tenancy: the tenant key is derived server-side from the JWT
+ * (s15-restrictions-rbac, ADR 005). The `pseudo` is read from
+ * useAuthStore.getState().pseudo (cookie-backed, ADR 011) only for
+ * the local `isValidPseudo` UX guard — it is NOT sent in the
+ * request body. The client regex ^[a-zA-Z0-9_]{3,32}$ (3-32 chars)
+ * is preserved as a local-only UX guard.
  *
  * History is NOT persisted (s19 owns the persistent history). State lives
  * only in this store and is lost on refresh. Messages accumulate in memory
@@ -136,7 +135,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           Accept: 'text/event-stream',
         },
         body: JSON.stringify({
-          pseudo,
           subject: input.subject,
           question: input.question,
         }),

@@ -1,6 +1,6 @@
 """FastAPI auth dependencies (s13, ADR 005).
 
-Two building blocks are exposed:
+Three building blocks are exposed:
 
 * :func:`get_current_user` — a FastAPI dependency that extracts the
   ``Authorization: Bearer <token>`` header, validates the JWT via
@@ -17,6 +17,14 @@ Two building blocks are exposed:
   in the allow-list. The 401 / 403 split is intentional: 401 means
   *who are you?*; 403 means *I know who you are, but you cannot
   do this*.
+* :func:`assert_jwt_pseudo_matches_or_403` — the cross-tenant
+  guard introduced in s15. Endpoints that accept a ``pseudo`` in
+  the body or URL (e.g. legacy ``Form(pseudo)``) call it with
+  the value they received; if it differs from the JWT
+  :attr:`User.pseudo` (case-insensitive, matching
+  ``uq_users_pseudo_lower``), the helper raises 403
+  ``forbidden`` and emits a ``security.cross_tenant_attempt``
+  log line. An admin caller bypasses the guard (ADR 005).
 
 The module depends on :mod:`app.core.auth.jwt` (the only verify
 path) and on :class:`app.core.database.models.User`. There is no
@@ -135,4 +143,64 @@ def require_role(*allowed: UserRole):
     return _dep
 
 
-__all__ = ["get_current_user", "require_role"]
+__all__ = ["assert_jwt_pseudo_matches_or_403", "get_current_user", "require_role"]
+
+
+def assert_jwt_pseudo_matches_or_403(
+    user: User,
+    claimed: str | None,
+    *,
+    route: str,
+) -> None:
+    """Enforce that ``claimed`` matches the JWT :attr:`User.pseudo`.
+
+    This is the HTTP-level cross-tenant guard introduced in s15
+    (plan ``s15-restrictions-rbac``, ADR 005 § « RBAC »). The
+    rule lives here, not in :func:`get_current_user`, because
+    the dependency is called by endpoints with no
+    body/URL ``pseudo`` (logout, add_child, list_children) where
+    the guard would always be a no-op — keeping the dependency
+    lean lets it stay focused on identity.
+
+    Branches:
+
+    * ``claimed is None`` — the endpoint did not receive a
+      ``pseudo`` from the body or URL, so there is nothing to
+      compare. No-op.
+    * ``claimed`` matches ``user.pseudo`` (case-insensitive,
+      aligned with the functional index
+      ``uq_users_pseudo_lower``) — no-op.
+    * ``user.role is UserRole.ADMIN`` — bypass (ADR 005). The
+      DEBUG line ``auth.middleware.admin_bypass`` is emitted so
+      an operator can correlate the action; no INFO
+      cross-tenant log on this branch.
+    * Otherwise — raise 403 ``forbidden`` (the same body as
+      :func:`require_role`) and emit the INFO line
+      ``security.cross_tenant_attempt`` carrying ``caller``,
+      ``claimed``, ``role`` and ``route``. **No** bearer
+      scheme, **no** ``jti``, **no** password, **no** request
+      body in the log line (AGENTS.md § Backend logging).
+    """
+    if claimed is None:
+        return
+
+    if claimed.lower() == user.pseudo.lower():
+        return
+
+    if user.role is UserRole.ADMIN:
+        logger.debug(
+            "auth.middleware.admin_bypass pseudo={} route={}", user.pseudo, route
+        )
+        return
+
+    logger.info(
+        "security.cross_tenant_attempt caller={} claimed={} role={} route={}",
+        user.pseudo,
+        claimed,
+        user.role.value,
+        route,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=dict(_FORBIDDEN_DETAIL),
+    )
