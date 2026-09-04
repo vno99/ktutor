@@ -221,13 +221,38 @@ test.describe('Parent child-detail page', () => {
   }) => {
     await seedAuth(page);
     await stubChild(page, CHILD_DASHBOARD_PAYLOAD);
+
+    // The apiClient must hit /api/dashboard/eleve?pseudo=bob for
+    // BOTH the ParentChildClient pre-fetch AND the DashboardClient
+    // mount fetch. Review finding #2: the DashboardClient must
+    // accept a `pseudo` prop (s17 fix) that drives the query
+    // string. Without it, the second request (from DashboardClient
+    // mount) returns the JWT-caller's own dashboard. We collect
+    // every /api/dashboard/eleve request and verify all of them
+    // carry the child pseudo.
+    const eleveRequests: string[] = [];
+    page.on('request', (req) => {
+      if (req.url().includes('/api/dashboard/eleve')) {
+        eleveRequests.push(req.url());
+      }
+    });
+
     await page.goto('/fr/dashboard/parent/bob');
-    // The DashboardClient's title from the eleve namespace is
-    // still rendered in the wrapped component. The readOnly
-    // pastille is the new afford (s17).
+
+    // Wait for the readOnly pastille to confirm the DashboardClient
+    // has mounted (its useEffect fires after the pastille renders).
     await expect(
       page.getByText('Vue parent — lecture seule'),
     ).toBeVisible();
+    // Give the React effect a tick to fire the second request.
+    await page.waitForTimeout(500);
+
+    expect(eleveRequests.length).toBeGreaterThanOrEqual(2);
+    for (const url of eleveRequests) {
+      const parsed = new URL(url);
+      expect(parsed.searchParams.get('pseudo')).toBe('bob');
+    }
+
     // The "Voir les détails" button is removed from the DOM in
     // readOnly mode. The eleve page does NOT show this pastille.
     await expect(

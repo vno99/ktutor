@@ -168,10 +168,7 @@
       "cardAria": "Accéder au tableau de bord de {child}",
       "detail403": "Accès refusé. Cet enfant n'est pas lié à ton compte.",
       "loadingList": "Chargement de tes enfants…",
-      "loadingDetail": "Chargement du tableau de bord de {child}…",
-      "refresh": "Rafraîchir",
-      "refreshing": "Rafraîchissement…",
-      "retry": "Réessayer"
+      "loadingDetail": "Chargement du tableau de bord de {child}…"
     }
   }
 }

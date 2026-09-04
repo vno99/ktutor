@@ -149,7 +149,10 @@ function ChartTooltip(props: { active?: boolean; payload?: Array<{ payload: { na
   );
 }
 
-export function DashboardClient({ readOnly = false }: { readOnly?: boolean } = {}) {
+export function DashboardClient({
+  readOnly = false,
+  pseudo,
+}: { readOnly?: boolean; pseudo?: string } = {}) {
   const t = useTranslations('dashboard.eleve');
   const tChat = useTranslations('chat');
   const tParent = useTranslations('dashboard.parent');
@@ -162,6 +165,16 @@ export function DashboardClient({ readOnly = false }: { readOnly?: boolean } = {
   const [error, setError] = useState<ErrorCode | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
+
+  // The apiClient URL gains a `?pseudo=<pseudo>` when a child pseudo
+  // is provided (s17 — parent child-detail view). When omitted, the
+  // JWT's own pseudo is used (s16 retrocompatible). The server-side
+  // helper `assert_parent_linked_to_child_or_403` enforces the
+  // parent↔child link for parent callers; for eleve callers the
+  // s15 self-match branch passes; for admins, the bypass branch
+  // passes. The `?pseudo=` only changes the URL — the response shape
+  // and the rest of the component are identical.
+  const apiParams = pseudo ? { pseudo } : undefined;
 
   // fetchDashboard is the user-triggered fetch path (Refresh button,
   // Retry button in the error state). It runs in an event handler,
@@ -182,6 +195,7 @@ export function DashboardClient({ readOnly = false }: { readOnly?: boolean } = {
     try {
       const resp = await apiClient.get<EleveDashboardResponse>(
         '/api/dashboard/eleve',
+        { params: apiParams },
       );
       setData(resp.data);
     } catch (err) {
@@ -202,7 +216,7 @@ export function DashboardClient({ readOnly = false }: { readOnly?: boolean } = {
     // react-hooks/set-state-in-effect rule does not track (it
     // analyses the synchronous call chain only).
     apiClient
-      .get<EleveDashboardResponse>('/api/dashboard/eleve')
+      .get<EleveDashboardResponse>('/api/dashboard/eleve', { params: apiParams })
       .then((resp) => {
         setData(resp.data);
       })
@@ -213,7 +227,7 @@ export function DashboardClient({ readOnly = false }: { readOnly?: boolean } = {
         setIsRefreshing(false);
         setHasFetched(true);
       });
-  }, [hydrated, accessToken]);
+  }, [hydrated, accessToken, apiParams]);
 
   const globalRateTone = data ? rateTone(data.global.score_avg) : 'warning';
   const subjectCards = useMemo(() => {

@@ -127,7 +127,7 @@ app/
    - Sous-titre (`text-sm md:text-base text-text-secondary`) : « Suis la progression de chacun de tes enfants. » / « Track the progress of each of your children. ».
 
 2. **Pastille read-only** (1 ligne, au-dessus de la grille, `self-start`) :
-   - `<div>` `inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium` (cohérent avec les badges indicateurs s16, juste teinte primary).
+   - `<div>` `inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary-strong text-xs font-medium` (cohérent avec les badges indicateurs s16, juste teinte primary ; le `text-primary-strong` au lieu de `text-primary` est un ajustement WCAG AA — `text-primary` sur `bg-primary/10` est borderline).
    - Contenu : icône `eye` Lucide 16px (`aria-hidden="true"`) + label « Vue parent — lecture seule » / « Parent view — read-only ».
    - `aria-label="Mode lecture seule : tu peux consulter les données de tes enfants mais pas les modifier."` (annonce screen reader du contexte).
 
@@ -137,12 +137,12 @@ app/
      - **Avatar à gauche** : `<div>` `w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-base font-semibold` avec l'initiale du `child.pseudo` (`pseudo.charAt(0).toUpperCase()`). Fallback si vide : `?` Lucide 16px.
      - **Bloc central** (flex-1) :
        - Nom enfant (`text-base font-semibold text-text-primary`).
-       - Pseudo en `text-xs text-text-tertiary` sous le nom (utile si le parent a lié deux enfants dont les noms s'affichent pareil — rare mais explicite).
+       - Pseudo en `text-xs text-text-secondary` sous le nom (utile si le parent a lié deux enfants dont les noms s'affichent pareil — rare mais explicite ; `text-text-secondary` au lieu de `text-text-tertiary` pour passer WCAG AA 4.5:1).
        - Méta : « Lié depuis le {date} » (`text-xs text-text-secondary`, formaté via `Intl.DateTimeFormat(locale, { dateStyle: 'medium' })`).
      - **Indicateur de progression** à droite (flex-col, items-end, gap-1) :
        - Valeur « 75 % » (`text-lg font-semibold text-text-primary`) si l'enfant a des tentatives, sinon « — » (`text-lg text-text-tertiary`).
        - Label « Taux de réussite » (`text-xs text-text-tertiary`).
-       - Badge indicateur (mêmes règles que s16 : `bg-success/10` ≥ 70 %, `bg-warning/10` 40-70 %, `bg-error/10` < 40 %, `text-xs`).
+       - Badge indicateur (mêmes règles que s16 : `bg-success/10` ≥ 70 %, `bg-warning/10` 40-70 %, `bg-error/10` < 40 %, `text-xs`). **Note implémentation** : le mockup HTML affichait `+4 pts` (delta de points du jour) dans le badge, mais le système de récompenses n'est pas encore branché (gap s25). L'implémentation s17 affiche le pourcentage arrondi (ex. `75 %`) comme contenu visible. Le badge garde le même code couleur et la même forme, seul le texte diffère.
      - **Chevron** (`arrow-right` Lucide 20px en `text-text-tertiary`) à l'extrême droite, indique la navigation.
 
 4. **Empty state parent** (aucun enfant lié) :
@@ -269,7 +269,7 @@ C'est **le point chaud de la story** (cf. recherche Piège n°1). Le `DashboardC
   - `aria-disabled` + `tabindex="-1"` sur les actions désactivées (héritées s16).
 - **Doublon accessible du chart** : `<table>` sr-only (héritée s16).
 - **Focus** : `:focus-visible` primary ring sur tous les éléments interactifs (cards, boutons, header). Le `<a>` Child card a un ring primary visible quand Tab le sélectionne.
-- **Contraste** : identique s16. Le `text-primary` sur `bg-primary/10` est validé visuellement (utilisé pour les badges indicateurs s16).
+- **Contraste** : identique s16. Le `text-primary-strong` sur `bg-primary/10` est validé visuellement (utilisé pour les badges indicateurs s16). L'ancien `text-primary` sur ce fond était borderline AA ; l'implémentation a été ajustée pour passer WCAG 2.1 niveau A 4.5:1.
 - **Touch targets** : 44×44 px partout. Les Child cards entières sont cliquables (hit area > 44×44).
 - **Keyboard** : Tab → Card1 → Card2 → ... → Bouton Rafraîchir. `<a>` Child card accessible au clavier, Enter suit le lien.
 - **Reduced motion** : `prefers-reduced-motion: reduce` désactive `animate-spin` (héritée s16).

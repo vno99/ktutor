@@ -420,3 +420,114 @@ class TestGetParentDashboardCrossTenant:
         body = resp.json()
         pseudos = {c["pseudo"] for c in body["children"]}
         assert {"bob", "charlie"} <= pseudos
+
+
+# ---------------------------------------------------------------------------
+# Integration: the /api/dashboard/eleve router must accept a parent
+# caller for a linked child. The s17 plan documented the
+# `assert_parent_linked_to_child_or_403` helper as "covering our
+# case" through the s16 endpoint with `?pseudo=`, but the wiring
+# was missed in commit f908d92: the endpoint only called
+# `assert_jwt_pseudo_matches_or_403`, which 403s every non-self
+# non-admin caller. Review #1 (critical).
+# ---------------------------------------------------------------------------
+
+
+class TestGetEleveDashboardAsParentViaEleveRouter:
+    def test_parent_can_fetch_linked_child_dashboard(
+        self,
+        client: TestClient,
+        seeded_parent_alice: User,
+        seeded_eleve_bob: User,
+        session_factory,
+    ) -> None:
+        """The real ``/api/dashboard/eleve?pseudo=bob`` endpoint must
+        return 200 with Bob's dashboard when a parent Alice (linked
+        to Bob) calls it. Before the fix the endpoint rejected every
+        non-self parent with 403 ``forbidden``."""
+        _seed_link(session_factory, seeded_parent_alice.pseudo, seeded_eleve_bob.pseudo)
+        _seed_attempts(session_factory, "bob", Subject.MATHS, successes=1, fails=0)
+
+        resp = client.get(
+            "/api/dashboard/eleve",
+            params={"pseudo": "bob"},
+            headers=_bearer(seeded_parent_alice),
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["global"]["exercises_count"] == 1
+
+    def test_parent_cannot_fetch_unlinked_child_dashboard(
+        self,
+        client: TestClient,
+        seeded_parent_alice: User,
+        seeded_eleve_charlie: User,
+        session_factory,
+    ) -> None:
+        """Same endpoint, but the parent is NOT linked to the child.
+        Must 403 ``forbidden``."""
+        # No _seed_link — Alice is not linked to charlie.
+        resp = client.get(
+            "/api/dashboard/eleve",
+            params={"pseudo": "charlie"},
+            headers=_bearer(seeded_parent_alice),
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["code"] == "forbidden"
+
+    def test_parent_querying_own_dashboard_via_eleve_router(
+        self,
+        client: TestClient,
+        seeded_parent_alice: User,
+        session_factory,
+    ) -> None:
+        """A parent asking for their OWN dashboard (no link involved)
+        must still get 200. The s15 self-match branch carries over."""
+        resp = client.get(
+            "/api/dashboard/eleve",
+            params={"pseudo": "alice"},
+            headers=_bearer(seeded_parent_alice),
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        # The aggregator returns 0 attempts for a parent with none.
+        assert body["global"]["exercises_count"] == 0
+
+    def test_admin_can_fetch_any_child_dashboard_via_eleve_router(
+        self,
+        client: TestClient,
+        seeded_admin: User,
+        seeded_eleve_bob: User,
+        session_factory,
+    ) -> None:
+        """The s15 admin-bypass branch must still work after the
+        wiring change. Admin → Bob → 200."""
+        _seed_attempts(session_factory, "bob", Subject.MATHS, successes=2, fails=0)
+
+        resp = client.get(
+            "/api/dashboard/eleve",
+            params={"pseudo": "bob"},
+            headers=_bearer(seeded_admin),
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["global"]["exercises_count"] == 2
+
+    def test_unlinked_eleve_cannot_fetch_another_eleve_dashboard(
+        self,
+        client: TestClient,
+        seeded_eleve_bob: User,
+        seeded_eleve_charlie: User,
+        session_factory,
+    ) -> None:
+        """Regression check for the s15 contract: an eleve who is
+        not linked to the requested child (no ParentChildLink row)
+        must still 403. The new helper must not weaken the guard
+        for non-parent roles."""
+        # No link — bob and charlie are independent eleves.
+        resp = client.get(
+            "/api/dashboard/eleve",
+            params={"pseudo": "charlie"},
+            headers=_bearer(seeded_eleve_bob),
+        )
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["code"] == "forbidden"

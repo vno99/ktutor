@@ -335,6 +335,17 @@ function ChildCard({
           {initial}
         </div>
         <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+          {/*
+           * The s17 API (ChildDashboardEntry) carries a `pseudo`
+           * but no real `name` field. The mockup has a "Name +
+           * pseudo" stack (e.g. "Alice Dupont" / "alice"), but
+           * surfacing the pseudo twice is the v1 degradation.
+           * Adding a `name` field is a separate story (out of
+           * scope for s17). The two lines below are the same
+           * value on purpose — the first is the "primary"
+           * rendering slot, the second is a place-holder that
+           * will be replaced once the API ships a name.
+           */}
           <span className="text-base font-semibold text-text-primary truncate">
             {entry.pseudo}
           </span>

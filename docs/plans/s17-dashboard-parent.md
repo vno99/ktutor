@@ -221,6 +221,29 @@ Vue parent lecture seule du dashboard eleve : `GET /api/dashboard/parent` (JWT a
 14. [x] **Conventional commit unique** : `feat(frontend+api): add parent dashboard with read-only child view (s17)` couvrant tous les fichiers modifiés + créés + le research + le design + le plan.
     - **Vérification** : `git log -1` montre un seul commit avec tous les fichiers.
 
+## Review fixes (2026-09-04, s17-fix pass)
+
+The story was blocked in review (commit `b792eef`) with `Max severity: critical` (`Ship allowed: no`). Eight findings raised, fixed in this pass:
+
+- **#1 (critical) — `/dashboard/parent/[child_pseudo]` non-functional (always 403).** The `assert_parent_linked_to_child_or_403` helper was defined and tested but never wired. `backend/app/api/dashboard/eleve.py:80` still called `assert_jwt_pseudo_matches_or_403`, which blocks every non-self non-admin caller. **Fix (option a, surgical):** substitute the helper in `eleve.py`. The plan's "eleve.py not modified" line is overridden by the plan's own internal contradiction (the helper was "covering our case" through the s16 endpoint, but never actually wired). **Verified by 5 new tests** in `TestGetEleveDashboardAsParentViaEleveRouter` (parent→linked child: 200, parent→unlinked: 403, parent→self: 200, admin→any: 200, eleve→another eleve: 403). Mutation test: reverting the substitution turns the first test red.
+- **#2 (major) — `ParentChildClient` renders `DashboardClient` without `?pseudo=`.** Even after #1, the second apiClient.get would have returned the JWT-caller's dashboard. **Fix:** extend `DashboardClient` to `{ readOnly?: boolean; pseudo?: string }`. The apiClient URL gains `?pseudo=<pseudo>` when the prop is set. The e2e (e) test now collects every `/api/dashboard/eleve` request and asserts ALL of them carry `?pseudo=bob`. Mutation test: dropping the prop turns the assertion red.
+- **#3 (minor) — design doc `text-primary` → `text-primary-strong`.** Updated `docs/designs/s17-dashboard-parent.md:130` and the contrast section at line 272 to match the implementation.
+- **#4 (minor) — design doc `text-text-tertiary` → `text-text-secondary`.** Updated `docs/designs/s17-dashboard-parent.md:140` with a comment explaining the WCAG AA 4.5:1 reason.
+- **#5 (minor) — Child card displays `pseudo` twice.** Added a comment in `ParentListClient.tsx` explaining the v1 degradation (the s17 API has no `name` field, adding one is a separate story).
+- **#6 (minor) — Badge content `+4 pts` (design) vs `${percent}%` (impl).** Documented the divergence in the design doc with a `Note implémentation` paragraph; the rewards system is not wired (s25+).
+- **#7 (minor) — 5 dead i18n keys.** USED `detailTitle` and `detailReadOnly` (added to `ParentChildClient` loading and 403 paths). REMOVED `refresh`/`refreshing`/`retry` (DashboardClient has its own from `dashboard.eleve`, the plan's "dupliquer pour autonomie" was an anti-pattern).
+- **#8 (minor) — No backend integration test for the eleve router as parent caller.** Addressed by the 5 new tests in #1.
+
+Additional tasks tracked:
+
+15. [x] **Helper wiring in `eleve.py`** (Finding #1) — substitute `assert_parent_linked_to_child_or_403` for `assert_jwt_pseudo_matches_or_403`. Justified by the plan's own contradiction (helper documented as "covering our case" but never wired). 5 new tests in `TestGetEleveDashboardAsParentViaEleveRouter`.
+16. [x] **`DashboardClient` `pseudo` prop** (Finding #2) — extend interface to `{ readOnly?: boolean; pseudo?: string }`, thread the `params: { pseudo }` into both the initial-load effect and the user-triggered `fetchDashboard`. Update `ParentChildClient` to pass `pseudo={childPseudo}`. Update e2e (e) to assert all `/api/dashboard/eleve` requests carry `?pseudo=bob`.
+17. [x] **Design doc contrast sync** (Findings #3, #4) — update `docs/designs/s17-dashboard-parent.md` § 4.2 (pastille, pseudo-line) and § 7 (contraste) to match the implementation tokens.
+18. [x] **Dead i18n key cleanup** (Finding #7) — use `detailTitle` and `detailReadOnly` in `ParentChildClient`; remove `refresh`/`refreshing`/`retry` from `dashboard.parent` in `fr.json` and `en.json` (DashboardClient uses its own from `dashboard.eleve`).
+19. [x] **Comment about pseudo duplication in `ParentListClient`** (Finding #5) — explain the v1 degradation in `ChildCard`.
+20. [x] **Document badge divergence in design** (Finding #6) — add a `Note implémentation` paragraph in `docs/designs/s17-dashboard-parent.md` § 4.2 explaining the rewards gap.
+21. [x] **Verify full test suite + lint** (post-fix regression) — `pytest tests/`: 621 passed (+5 from the new tests, 0 regression). `ruff check app/ tests/`: 0 issue. `npx tsc --noEmit`: 0 error. `pnpm exec playwright test`: 43 passed (8 s17 + 35 pre-existing), 0 regression. `bash scripts/check-i18n.sh`: exit 0.
+
 ## Run interdicts
 
 - **Pas de nouveau cache key** (`dashboard:parent:{parent_pseudo}`) : on réutilise `dashboard:eleve:{child_pseudo}` (cf. Arbitrage #2). Une entrée par `pseudo` enfant suffit — l'invalidation est par pseudo enfant, le parent en bénéficie.

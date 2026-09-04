@@ -75,6 +75,11 @@ export function ParentChildClient({ childPseudo }: { childPseudo: string }) {
     return (
       <div className="max-w-3xl mx-auto px-4 md:px-6 py-4 md:py-6 flex flex-col gap-4">
         <BackLink />
+        <header className="flex flex-col gap-1">
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-text-primary">
+            {t('detailTitle', { child: childPseudo })}
+          </h1>
+        </header>
         <Card
           role="status"
           aria-live="polite"
@@ -93,6 +98,11 @@ export function ParentChildClient({ childPseudo }: { childPseudo: string }) {
     return (
       <div className="max-w-3xl mx-auto px-4 md:px-6 py-4 md:py-6 flex flex-col gap-4">
         <BackLink />
+        <header className="flex flex-col gap-1">
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-text-primary">
+            {t('detailTitle', { child: childPseudo })}
+          </h1>
+        </header>
         <Card role="alert" className="bg-error/10 border border-error/30">
           <div className="flex items-start gap-3">
             <AlertTriangle
@@ -120,10 +130,16 @@ export function ParentChildClient({ childPseudo }: { childPseudo: string }) {
 
   // Success (or generic error) — let the DashboardClient manage
   // its own 4 states. The readOnly prop hides the parent's
-  // forbidden buttons (CTA + "Voir les détails"). Generic
-  // network/500 errors fall through to DashboardClient's
+  // forbidden buttons (CTA + "Voir les détails"). The pseudo
+  // prop scopes the dashboard fetch to the linked child via
+  // `?pseudo=<child>` (the s17 wiring of the eleve router with
+  // `assert_parent_linked_to_child_or_403` enforces the link on
+  // the server). Without the prop, the apiClient hits
+  // `/api/dashboard/eleve` with no query and returns the
+  // JWT-caller's own (parent) dashboard — review finding #2.
+  // Generic network/500 errors fall through to DashboardClient's
   // ErrorState.
-  return <DashboardClient readOnly={true} />;
+  return <DashboardClient readOnly={true} pseudo={childPseudo} />;
 }
 
 function BackLink() {

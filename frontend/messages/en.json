@@ -168,10 +168,7 @@
       "cardAria": "Go to {child}'s dashboard",
       "detail403": "Access denied. This child is not linked to your account.",
       "loadingList": "Loading your children…",
-      "loadingDetail": "Loading {child}'s dashboard…",
-      "refresh": "Refresh",
-      "refreshing": "Refreshing…",
-      "retry": "Retry"
+      "loadingDetail": "Loading {child}'s dashboard…"
     }
   }
 }
