@@ -1,0 +1,1236 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Design — s16-dashboard-eleve (mockup statique)</title>
+  <style>
+    /* ============================================================
+       Mockup statique — story s16-dashboard-eleve
+       Référence visuelle, low-fidelity. Pas du code à copier.
+       Tokens : docs/design-system.md (colors, spacing, typography,
+       radius, shadows). Tous les tokens sont hardcodés ici
+       (équivalent CSS vars du design system) pour rendre le mockup
+       autonome. L'implémentation réelle utilise les composants
+       maison (<Header>, <Card>, <Button>) + la lib Recharts
+       pour le <BarChart>.
+       ============================================================ */
+    :root {
+      /* Couleurs — light mode (défaut) */
+      --color-primary: #3D5AFE;
+      --color-primary-strong: #1E2A8A;
+      --color-canvas: #FAFBFC;
+      --color-surface: #FFFFFF;
+      --color-surface-subtle: #F4F6FA;
+      --color-border: #E2E6EE;
+      --color-text-primary: #0D0F14;
+      --color-text-secondary: #5B6472;
+      --color-text-tertiary: #8B95A3;
+      --color-accent-warm: #FF6B4A;
+      --color-success: #16A34A;
+      --color-warning: #D97706;
+      --color-error: #DC2626;
+
+      /* Espacement (Tailwind) */
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+
+      /* Radius */
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-full: 9999px;
+
+      /* Ombres */
+      --shadow-kt-sm: 0 1px 2px rgba(13,15,20,0.04);
+      --shadow-kt-default: 0 2px 8px rgba(13,15,20,0.06);
+      --shadow-kt-md: 0 4px 12px rgba(13,15,20,0.08);
+
+      /* Typo (font-family shortcuts) */
+      --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --color-primary: #6B82FE;
+        --color-primary-strong: #3D5AFE;
+        --color-canvas: #0B0D12;
+        --color-surface: #14171F;
+        --color-surface-subtle: #1B1F29;
+        --color-border: #2A2F3B;
+        --color-text-primary: #F4F6FA;
+        --color-text-secondary: #B4BCC8;
+        --color-text-tertiary: #8B95A3;
+        --color-success: #4ADE80;
+        --color-warning: #FBBF24;
+        --color-error: #F87171;
+        --shadow-kt-default: 0 2px 8px rgba(0,0,0,0.4);
+      }
+    }
+
+    /* Reset minimal */
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.5;
+      color: var(--color-text-primary);
+      background: var(--color-canvas);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    img { max-width: 100%; }
+    [hidden] { display: none !important; }
+
+    /* sr-only utility (équivalent Tailwind) */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* ============================================================
+       Layout du mockup
+       ============================================================ */
+    .mockup-shell {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .mockup-intro {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: var(--space-4) var(--space-6);
+      font-size: 14px;
+      color: var(--color-text-secondary);
+    }
+    .mockup-intro h1 {
+      margin: 0 0 var(--space-1) 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      letter-spacing: -0.011em;
+    }
+    .mockup-intro p { margin: 0; }
+    .mockup-intro code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--color-surface-subtle);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+    }
+
+    .mockup-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-6);
+      padding: var(--space-6);
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    @media (max-width: 900px) {
+      .mockup-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .mockup-cell {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+    }
+    .mockup-cell h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--color-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .mockup-cell .mockup-frame {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-kt-default);
+      overflow: hidden;
+    }
+    .mockup-cell .mockup-label {
+      font-size: 12px;
+      color: var(--color-text-tertiary);
+    }
+
+    /* ============================================================
+       Header (réplique du pattern s11c, sans lien actif)
+       ============================================================ */
+    .hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 var(--space-4);
+      height: 56px;
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+    }
+    .hdr-logo {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--color-primary-strong);
+      letter-spacing: -0.011em;
+    }
+    .hdr-logo-mark {
+      width: 24px;
+      height: 24px;
+      background: var(--color-primary);
+      color: white;
+      border-radius: var(--radius-sm);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .hdr-right {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+    }
+    .lang-pill {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+      font-size: 12px;
+    }
+    .lang-pill button {
+      border: 0;
+      background: transparent;
+      padding: 4px 10px;
+      cursor: pointer;
+      color: var(--color-text-secondary);
+      font-family: inherit;
+    }
+    .lang-pill button[aria-pressed="true"] {
+      background: var(--color-primary);
+      color: white;
+    }
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-full);
+      background: var(--color-primary);
+      color: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    /* ============================================================
+       Page (Dashboard)
+       ============================================================ */
+    .page {
+      background: var(--color-canvas);
+      padding: var(--space-4);
+    }
+    .page-inner {
+      max-width: 768px; /* tablette+ */
+      margin: 0 auto;
+    }
+    .page-title {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.011em;
+      color: var(--color-text-primary);
+      margin: 0 0 var(--space-1) 0;
+    }
+    .page-subtitle {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      margin: 0 0 var(--space-4) 0;
+    }
+    .section { margin-bottom: var(--space-4); }
+    .section:last-child { margin-bottom: 0; }
+
+    /* Card générique */
+    .card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-kt-default);
+      padding: var(--space-4);
+    }
+    .card-padded { padding: var(--space-6); }
+
+    /* Summary card (hero) */
+    .summary {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-3);
+    }
+    .summary-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-md);
+      background: var(--color-surface-subtle);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--color-text-tertiary);
+    }
+    .summary-body { flex: 1; min-width: 0; }
+    .summary-label {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      margin: 0 0 var(--space-1) 0;
+    }
+    .summary-value {
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: -0.011em;
+      color: var(--color-text-primary);
+      line-height: 1.1;
+      margin: 0;
+    }
+    .summary-trend {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: 14px;
+      color: var(--color-success);
+      margin-top: var(--space-1);
+    }
+    .summary-meta {
+      margin-top: var(--space-3);
+      padding-top: var(--space-3);
+      border-top: 1px solid var(--color-border);
+      font-size: 14px;
+      color: var(--color-text-secondary);
+    }
+    .summary-meta-line {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      margin-top: var(--space-1);
+      font-size: 12px;
+      color: var(--color-text-tertiary);
+    }
+    .summary-meta-line svg { flex-shrink: 0; }
+
+    /* Chart container */
+    .chart-card {
+      background: var(--color-surface-subtle);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+    }
+    .chart-title {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin: 0 0 var(--space-3) 0;
+    }
+    .chart-title svg { color: var(--color-text-tertiary); }
+
+    /* Mockup du BarChart (HTML/CSS, pas Recharts runtime) */
+    .chart-mock {
+      width: 100%;
+      height: 240px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-3) var(--space-3) var(--space-2) var(--space-3);
+      display: flex;
+      flex-direction: column;
+    }
+    .chart-plot {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      grid-template-rows: 1fr 28px;
+      gap: 0;
+    }
+    .chart-yaxis {
+      grid-column: 1;
+      grid-row: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: flex-end;
+      padding-right: var(--space-2);
+      font-size: 12px;
+      color: var(--color-text-tertiary);
+    }
+    .chart-bars {
+      grid-column: 2;
+      grid-row: 1;
+      position: relative;
+      border-left: 1px solid var(--color-border);
+      border-bottom: 1px solid var(--color-border);
+    }
+    .chart-grid-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--color-border);
+      opacity: 0.5;
+    }
+    .chart-bar-wrap {
+      position: absolute;
+      bottom: 0;
+      top: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+    }
+    .chart-bar {
+      width: 56px;
+      max-width: 80%;
+      background: var(--color-primary);
+      border-radius: 4px 4px 0 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      padding-top: var(--space-1);
+    }
+    .chart-xaxis {
+      grid-column: 2;
+      grid-row: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding-top: var(--space-2);
+      font-size: 12px;
+      color: var(--color-text-tertiary);
+    }
+    .chart-legend {
+      text-align: center;
+      font-size: 12px;
+      color: var(--color-text-tertiary);
+      margin-top: var(--space-2);
+    }
+    .chart-legend .legend-swatch {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      background: var(--color-primary);
+      border-radius: 2px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+
+    /* Subject cards */
+    .subjects-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-3);
+    }
+    @media (max-width: 600px) {
+      .subjects-grid { grid-template-columns: 1fr; }
+    }
+    .subject-card { display: flex; flex-direction: column; gap: var(--space-2); }
+    .subject-head {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .subject-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+      background: var(--color-primary);
+      color: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .subject-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+    }
+    .subject-rate-block {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-2);
+    }
+    .subject-rate-value {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.011em;
+      color: var(--color-text-primary);
+      line-height: 1.1;
+    }
+    .subject-rate-label {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .badge-success { background: rgba(22, 163, 74, 0.10); color: var(--color-success); }
+    .badge-warning { background: rgba(217, 119, 6, 0.10); color: var(--color-warning); }
+    .badge-error { background: rgba(220, 38, 38, 0.10); color: var(--color-error); }
+    .subject-meta {
+      font-size: 12px;
+      color: var(--color-text-tertiary);
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+    }
+    .subject-meta-line { display: flex; align-items: center; gap: var(--space-1); margin-top: 2px; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-2);
+      padding: 10px 16px;
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      min-height: 44px;
+    }
+    .btn-primary {
+      background: var(--color-primary);
+      color: white;
+    }
+    .btn-secondary {
+      background: var(--color-surface);
+      color: var(--color-text-primary);
+      border-color: var(--color-border);
+    }
+    .btn-ghost {
+      background: transparent;
+      color: var(--color-text-primary);
+    }
+    .btn-ghost:disabled,
+    .btn[aria-disabled="true"] {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-block { width: 100%; }
+
+    /* Refresh button row */
+    .refresh-row {
+      display: flex;
+      justify-content: flex-end;
+    }
+    @media (max-width: 600px) {
+      .refresh-row { justify-content: stretch; }
+      .refresh-row .btn { width: 100%; }
+    }
+
+    /* Empty state */
+    .empty {
+      text-align: center;
+      padding: var(--space-6);
+    }
+    .empty-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-full);
+      background: var(--color-surface-subtle);
+      color: var(--color-text-tertiary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: var(--space-3);
+    }
+    .empty-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--color-text-primary);
+      margin: 0 0 var(--space-1) 0;
+    }
+    .empty-desc {
+      font-size: 14px;
+      color: var(--color-text-secondary);
+      margin: 0 0 var(--space-4) 0;
+    }
+
+    /* Error state */
+    .alert {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-3);
+      padding: var(--space-4);
+      border-radius: var(--radius-md);
+      border: 1px solid transparent;
+    }
+    .alert-error {
+      background: rgba(220, 38, 38, 0.10);
+      border-color: rgba(220, 38, 38, 0.30);
+    }
+    .alert-icon { color: var(--color-error); flex-shrink: 0; }
+    .alert-body { flex: 1; }
+    .alert-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--color-text-primary);
+      margin: 0 0 var(--space-1) 0;
+    }
+    .alert-code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-text-tertiary);
+      margin-top: var(--space-1);
+    }
+    .alert-cta { margin-top: var(--space-3); }
+
+    /* Loading (texte + spinner) */
+    .loading {
+      text-align: center;
+      padding: var(--space-6);
+      color: var(--color-text-secondary);
+      font-size: 14px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--color-border);
+      border-top-color: var(--color-primary);
+      border-radius: var(--radius-full);
+      animation: spin 1s linear infinite;
+      vertical-align: middle;
+      margin-right: var(--space-2);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .spinner { animation-duration: 0.01ms; }
+    }
+
+    /* ============================================================
+       Vue mobile dédiée (360px)
+       ============================================================ */
+    .mockup-mobile-cell {
+      max-width: 360px;
+      margin: 0 auto;
+    }
+    @media (max-width: 600px) {
+      .mockup-mobile-cell { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="mockup-shell">
+    <div class="mockup-intro">
+      <h1>Design — s16-dashboard-eleve</h1>
+      <p>Mockup statique low-fidelity. Référence visuelle, <strong>pas du code à copier</strong>. L'implémentation réelle utilise les composants du design system (<code>&lt;Header&gt;</code>, <code>&lt;Card&gt;</code>, <code>&lt;Button&gt;</code>) + la lib <strong>Recharts</strong> pour le <code>&lt;BarChart&gt;</code>. Tokens : <code>docs/design-system.md</code>.</p>
+      <p>Écran : <strong>page <code>/dashboard/eleve</code></strong> (route group <code>(dashboard)/[locale]/eleve/dashboard/</code>). FR par défaut + EN, FR ici. Mobile 360px + Tablette 768px+.</p>
+    </div>
+
+    <div class="mockup-grid">
+
+      <!-- ============================================================
+           ÉTAT 1 : LOADING (initial, skeleton textuel + spinner)
+           ============================================================ -->
+      <div class="mockup-cell">
+        <h2>1. Loading</h2>
+        <span class="mockup-label">Tablette 768px+ — état initial pendant le fetch</span>
+        <div class="mockup-frame">
+          <div class="hdr">
+            <div class="hdr-logo">
+              <span class="hdr-logo-mark">k</span>
+              ktutor
+            </div>
+            <div class="hdr-right">
+              <div class="lang-pill" role="group" aria-label="Langue">
+                <button type="button" aria-pressed="true">FR</button>
+                <button type="button" aria-pressed="false">EN</button>
+              </div>
+              <div class="avatar" aria-label="Avatar de alice">A</div>
+            </div>
+          </div>
+          <div class="page" aria-busy="true">
+            <div class="page-inner">
+              <h1 class="page-title">Mon tableau de bord</h1>
+              <p class="page-subtitle">Ta progression, par matière.</p>
+              <div class="loading">
+                <span class="spinner" aria-hidden="true"></span>
+                Chargement de ton tableau de bord…
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           ÉTAT 2 : EMPTY (aucune tentative)
+           ============================================================ -->
+      <div class="mockup-cell">
+        <h2>2. Empty</h2>
+        <span class="mockup-label">Tablette 768px+ — aucun exercice tenté</span>
+        <div class="mockup-frame">
+          <div class="hdr">
+            <div class="hdr-logo">
+              <span class="hdr-logo-mark">k</span>
+              ktutor
+            </div>
+            <div class="hdr-right">
+              <div class="lang-pill" role="group" aria-label="Langue">
+                <button type="button" aria-pressed="true">FR</button>
+                <button type="button" aria-pressed="false">EN</button>
+              </div>
+              <div class="avatar" aria-label="Avatar de alice">A</div>
+            </div>
+          </div>
+          <div class="page">
+            <div class="page-inner">
+              <h1 class="page-title">Mon tableau de bord</h1>
+              <p class="page-subtitle">Ta progression, par matière.</p>
+
+              <div class="section">
+                <div class="card card-padded empty">
+                  <div class="empty-icon" aria-hidden="true">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                  </div>
+                  <h2 class="empty-title">Tu n'as pas encore tenté d'exercice.</h2>
+                  <p class="empty-desc">Commence par générer un exercice depuis l'onglet Chat.</p>
+                  <button type="button" class="btn btn-primary">Aller au chat</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           ÉTAT 3 : SUCCÈS — 2 MATIÈRES (le happy path)
+           ============================================================ -->
+      <div class="mockup-cell" style="grid-column: 1 / -1;">
+        <h2>3. Succès — 2 matières (happy path)</h2>
+        <span class="mockup-label">Tablette 768px+ — Maths 75 % + Français 60 %</span>
+        <div class="mockup-frame">
+          <div class="hdr">
+            <div class="hdr-logo">
+              <span class="hdr-logo-mark">k</span>
+              ktutor
+            </div>
+            <div class="hdr-right">
+              <div class="lang-pill" role="group" aria-label="Langue">
+                <button type="button" aria-pressed="true">FR</button>
+                <button type="button" aria-pressed="false">EN</button>
+              </div>
+              <div class="avatar" aria-label="Avatar de alice">A</div>
+            </div>
+          </div>
+          <div class="page">
+            <div class="page-inner">
+              <h1 class="page-title">Mon tableau de bord</h1>
+              <p class="page-subtitle">Ta progression, par matière.</p>
+
+              <!-- Summary card -->
+              <div class="section" aria-live="polite" aria-describedby="dashboard-last-updated">
+                <div class="card">
+                  <div class="summary">
+                    <div class="summary-icon" aria-hidden="true">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                    </div>
+                    <div class="summary-body">
+                      <p class="summary-label">Taux de réussite global</p>
+                      <p class="summary-value">69 %</p>
+                      <span class="summary-trend">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                        +4 pts ce mois-ci
+                      </span>
+                    </div>
+                  </div>
+                  <div class="summary-meta">
+                    20 tentatives
+                    <div class="summary-meta-line" id="dashboard-last-updated">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      Dernière activité : 4 sept. 2026 à 08:22
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Chart -->
+              <div class="section">
+                <div class="chart-card">
+                  <h2 class="chart-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                    Taux de réussite par matière
+                  </h2>
+                  <div class="chart-mock" role="img" aria-label="Taux de réussite par matière : Maths 75 %, Français 60 %">
+                    <div class="chart-plot">
+                      <div class="chart-yaxis" aria-hidden="true">
+                        <span>100 %</span>
+                        <span>75 %</span>
+                        <span>50 %</span>
+                        <span>25 %</span>
+                        <span>0 %</span>
+                      </div>
+                      <div class="chart-bars" aria-hidden="true">
+                        <div class="chart-grid-line" style="top: 0;"></div>
+                        <div class="chart-grid-line" style="top: 25%;"></div>
+                        <div class="chart-grid-line" style="top: 50%;"></div>
+                        <div class="chart-grid-line" style="top: 75%;"></div>
+                        <div class="chart-bar-wrap" style="left: 0; right: 50%;">
+                          <div class="chart-bar" style="height: 75%;">75 %</div>
+                        </div>
+                        <div class="chart-bar-wrap" style="left: 50%; right: 0;">
+                          <div class="chart-bar" style="height: 60%;">60 %</div>
+                        </div>
+                      </div>
+                      <div class="chart-xaxis" aria-hidden="true">
+                        <span>Maths</span>
+                        <span>Français</span>
+                      </div>
+                    </div>
+                    <div class="chart-legend" aria-hidden="true">
+                      <span class="legend-swatch"></span> Taux de réussite (%)
+                    </div>
+                  </div>
+                  <!-- Table sr-only (doublon accessible) -->
+                  <table class="sr-only">
+                    <caption>Taux de réussite par matière (version accessible, équivalente au graphique)</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Matière</th>
+                        <th scope="col">Taux de réussite</th>
+                        <th scope="col">Tentatives</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <th scope="row">Maths</th>
+                        <td>75 %</td>
+                        <td>12</td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Français</th>
+                        <td>60 %</td>
+                        <td>8</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Subject cards -->
+              <div class="section">
+                <div class="subjects-grid">
+                  <div class="card subject-card">
+                    <div class="subject-head">
+                      <div class="subject-icon" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                      </div>
+                      <span class="subject-name">Maths</span>
+                    </div>
+                    <div class="subject-rate-block">
+                      <span class="subject-rate-value">75 %</span>
+                      <span class="subject-rate-label">Taux de réussite</span>
+                    </div>
+                    <span class="badge badge-success">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                      Bon taux
+                    </span>
+                    <div class="subject-meta">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span>12 tentatives</span>
+                    </div>
+                    <div class="subject-meta subject-meta-line">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span>Dernière activité : il y a 3 jours</span>
+                    </div>
+                    <button type="button" class="btn btn-ghost" aria-disabled="true" tabindex="-1">Voir les détails</button>
+                  </div>
+
+                  <div class="card subject-card">
+                    <div class="subject-head">
+                      <div class="subject-icon" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                      </div>
+                      <span class="subject-name">Français</span>
+                    </div>
+                    <div class="subject-rate-block">
+                      <span class="subject-rate-value">60 %</span>
+                      <span class="subject-rate-label">Taux de réussite</span>
+                    </div>
+                    <span class="badge badge-warning">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/></svg>
+                      Taux moyen
+                    </span>
+                    <div class="subject-meta">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span>8 tentatives</span>
+                    </div>
+                    <div class="subject-meta subject-meta-line">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span>Dernière activité : il y a 5 jours</span>
+                    </div>
+                    <button type="button" class="btn btn-ghost" aria-disabled="true" tabindex="-1">Voir les détails</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Refresh -->
+              <div class="section refresh-row">
+                <button type="button" class="btn btn-primary" aria-label="Rafraîchir les données">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                  Rafraîchir les données
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           ÉTAT 4 : SUCCÈS — 1 MATIÈRE
+           ============================================================ -->
+      <div class="mockup-cell">
+        <h2>4. Succès — 1 matière</h2>
+        <span class="mockup-label">Tablette 768px+ — Maths seule (Français jamais tenté)</span>
+        <div class="mockup-frame">
+          <div class="hdr">
+            <div class="hdr-logo">
+              <span class="hdr-logo-mark">k</span>
+              ktutor
+            </div>
+            <div class="hdr-right">
+              <div class="lang-pill" role="group" aria-label="Langue">
+                <button type="button" aria-pressed="true">FR</button>
+                <button type="button" aria-pressed="false">EN</button>
+              </div>
+              <div class="avatar" aria-label="Avatar de alice">A</div>
+            </div>
+          </div>
+          <div class="page">
+            <div class="page-inner">
+              <h1 class="page-title">Mon tableau de bord</h1>
+              <p class="page-subtitle">Ta progression, par matière.</p>
+
+              <div class="section">
+                <div class="card">
+                  <div class="summary">
+                    <div class="summary-icon" aria-hidden="true">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                    </div>
+                    <div class="summary-body">
+                      <p class="summary-label">Taux de réussite global</p>
+                      <p class="summary-value">75 %</p>
+                      <span class="summary-trend">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                        +2 pts ce mois-ci
+                      </span>
+                    </div>
+                  </div>
+                  <div class="summary-meta">
+                    4 tentatives
+                    <div class="summary-meta-line" id="dashboard-last-updated-1m">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      Dernière activité : 4 sept. 2026 à 08:22
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="chart-card">
+                  <h2 class="chart-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                    Taux de réussite par matière
+                  </h2>
+                  <div class="chart-mock" role="img" aria-label="Taux de réussite par matière : Maths 75 % (Français jamais tenté)">
+                    <div class="chart-plot">
+                      <div class="chart-yaxis" aria-hidden="true">
+                        <span>100 %</span>
+                        <span>75 %</span>
+                        <span>50 %</span>
+                        <span>25 %</span>
+                        <span>0 %</span>
+                      </div>
+                      <div class="chart-bars" aria-hidden="true">
+                        <div class="chart-grid-line" style="top: 0;"></div>
+                        <div class="chart-grid-line" style="top: 25%;"></div>
+                        <div class="chart-grid-line" style="top: 50%;"></div>
+                        <div class="chart-grid-line" style="top: 75%;"></div>
+                        <div class="chart-bar-wrap" style="left: 0; right: 50%;">
+                          <div class="chart-bar" style="height: 75%;">75 %</div>
+                        </div>
+                      </div>
+                      <div class="chart-xaxis" aria-hidden="true">
+                        <span>Maths</span>
+                      </div>
+                    </div>
+                    <div class="chart-legend" aria-hidden="true">
+                      <span class="legend-swatch"></span> Taux de réussite (%)
+                    </div>
+                  </div>
+                  <table class="sr-only">
+                    <caption>Taux de réussite par matière (version accessible)</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Matière</th>
+                        <th scope="col">Taux de réussite</th>
+                        <th scope="col">Tentatives</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <th scope="row">Maths</th>
+                        <td>75 %</td>
+                        <td>4</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="subjects-grid">
+                  <div class="card subject-card">
+                    <div class="subject-head">
+                      <div class="subject-icon" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                      </div>
+                      <span class="subject-name">Maths</span>
+                    </div>
+                    <div class="subject-rate-block">
+                      <span class="subject-rate-value">75 %</span>
+                      <span class="subject-rate-label">Taux de réussite</span>
+                    </div>
+                    <span class="badge badge-success">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                      Bon taux
+                    </span>
+                    <div class="subject-meta">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span>4 tentatives</span>
+                    </div>
+                    <div class="subject-meta subject-meta-line">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span>Dernière activité : il y a 1 jour</span>
+                    </div>
+                    <button type="button" class="btn btn-ghost" aria-disabled="true" tabindex="-1">Voir les détails</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           ÉTAT 5 : ERREUR RÉSEAU
+           ============================================================ -->
+      <div class="mockup-cell">
+        <h2>5. Erreur réseau</h2>
+        <span class="mockup-label">Tablette 768px+ — apiClient rejette avant HTTP</span>
+        <div class="mockup-frame">
+          <div class="hdr">
+            <div class="hdr-logo">
+              <span class="hdr-logo-mark">k</span>
+              ktutor
+            </div>
+            <div class="hdr-right">
+              <div class="lang-pill" role="group" aria-label="Langue">
+                <button type="button" aria-pressed="true">FR</button>
+                <button type="button" aria-pressed="false">EN</button>
+              </div>
+              <div class="avatar" aria-label="Avatar de alice">A</div>
+            </div>
+          </div>
+          <div class="page">
+            <div class="page-inner">
+              <h1 class="page-title">Mon tableau de bord</h1>
+              <p class="page-subtitle">Ta progression, par matière.</p>
+
+              <div class="section">
+                <div class="alert alert-error" role="alert">
+                  <div class="alert-icon" aria-hidden="true">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  </div>
+                  <div class="alert-body">
+                    <p class="alert-title">Erreur réseau. Vérifie ta connexion.</p>
+                    <code class="alert-code">Code : network_error</code>
+                    <div class="alert-cta">
+                      <button type="button" class="btn btn-secondary">Réessayer</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           ÉTAT 6 : VUE MOBILE 360px
+           ============================================================ -->
+      <div class="mockup-cell" style="grid-column: 1 / -1;">
+        <h2>6. Vue mobile 360px — chart avec légende en-dessous, Subject cards stackées</h2>
+        <span class="mockup-label">Responsive critique (AC #3) : chart lisible, bouton Rafraîchir full-width</span>
+        <div class="mockup-mobile-cell">
+          <div class="mockup-frame">
+            <div class="hdr">
+              <div class="hdr-logo">
+                <span class="hdr-logo-mark">k</span>
+                ktutor
+              </div>
+              <div class="hdr-right">
+                <div class="lang-pill" role="group" aria-label="Langue">
+                  <button type="button" aria-pressed="true">FR</button>
+                  <button type="button" aria-pressed="false">EN</button>
+                </div>
+                <div class="avatar" aria-label="Avatar de alice">A</div>
+              </div>
+            </div>
+            <div class="page" style="padding: 12px;">
+              <div class="page-inner" style="max-width: 100%;">
+                <h1 class="page-title" style="font-size: 20px;">Mon tableau de bord</h1>
+                <p class="page-subtitle" style="font-size: 13px;">Ta progression, par matière.</p>
+
+                <!-- Summary (vertical sur mobile) -->
+                <div class="section">
+                  <div class="card">
+                    <div class="summary">
+                      <div class="summary-icon" aria-hidden="true">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                      </div>
+                      <div class="summary-body">
+                        <p class="summary-label">Taux de réussite global</p>
+                        <p class="summary-value" style="font-size: 24px;">69 %</p>
+                        <span class="summary-trend">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                          +4 pts ce mois-ci
+                        </span>
+                      </div>
+                    </div>
+                    <div class="summary-meta">
+                      20 tentatives
+                      <div class="summary-meta-line">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        4 sept. 2026 à 08:22
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Chart (légende en-dessous, AC #3) -->
+                <div class="section">
+                  <div class="chart-card" style="padding: 12px;">
+                    <h2 class="chart-title" style="font-size: 14px;">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                      Taux par matière
+                    </h2>
+                    <div class="chart-mock" style="height: 200px; padding: 8px;" role="img" aria-label="Taux de réussite par matière : Maths 75 %, Français 60 %">
+                      <div class="chart-plot">
+                        <div class="chart-yaxis" style="font-size: 10px;" aria-hidden="true">
+                          <span>100 %</span>
+                          <span>50 %</span>
+                          <span>0 %</span>
+                        </div>
+                        <div class="chart-bars" aria-hidden="true">
+                          <div class="chart-grid-line" style="top: 0;"></div>
+                          <div class="chart-grid-line" style="top: 50%;"></div>
+                          <div class="chart-bar-wrap" style="left: 0; right: 50%;">
+                            <div class="chart-bar" style="height: 75%; width: 40px; font-size: 10px;">75 %</div>
+                          </div>
+                          <div class="chart-bar-wrap" style="left: 50%; right: 0;">
+                            <div class="chart-bar" style="height: 60%; width: 40px; font-size: 10px;">60 %</div>
+                          </div>
+                        </div>
+                        <div class="chart-xaxis" style="font-size: 10px;" aria-hidden="true">
+                          <span>Maths</span>
+                          <span>Français</span>
+                        </div>
+                      </div>
+                      <div class="chart-legend" style="font-size: 10px;" aria-hidden="true">
+                        <span class="legend-swatch"></span> Taux (%)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Subject cards (stack vertical) -->
+                <div class="section">
+                  <div class="card subject-card" style="margin-bottom: 12px;">
+                    <div class="subject-head">
+                      <div class="subject-icon" aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                      </div>
+                      <span class="subject-name" style="font-size: 15px;">Maths</span>
+                    </div>
+                    <div class="subject-rate-block">
+                      <span class="subject-rate-value" style="font-size: 22px;">75 %</span>
+                      <span class="subject-rate-label">Taux</span>
+                    </div>
+                    <span class="badge badge-success">Bon taux</span>
+                    <div class="subject-meta">12 tentatives</div>
+                    <button type="button" class="btn btn-ghost btn-block" aria-disabled="true" tabindex="-1">Voir les détails</button>
+                  </div>
+                  <div class="card subject-card">
+                    <div class="subject-head">
+                      <div class="subject-icon" aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                      </div>
+                      <span class="subject-name" style="font-size: 15px;">Français</span>
+                    </div>
+                    <div class="subject-rate-block">
+                      <span class="subject-rate-value" style="font-size: 22px;">60 %</span>
+                      <span class="subject-rate-label">Taux</span>
+                    </div>
+                    <span class="badge badge-warning">Taux moyen</span>
+                    <div class="subject-meta">8 tentatives</div>
+                    <button type="button" class="btn btn-ghost btn-block" aria-disabled="true" tabindex="-1">Voir les détails</button>
+                  </div>
+                </div>
+
+                <!-- Refresh (full-width mobile) -->
+                <div class="section">
+                  <button type="button" class="btn btn-primary btn-block" aria-label="Rafraîchir les données">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    Rafraîchir
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>
