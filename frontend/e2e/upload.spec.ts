@@ -8,7 +8,9 @@ import AxeBuilder from '@axe-core/playwright';
  *  - (a) renders with all controls and htmlFor; Envoyer disabled when
  *        pseudo is missing
  *  - (b) uploads a stubbed file successfully and shows the success
- *        card; inspects the FormData (3 fields: pseudo, subject, file)
+ *        card; inspects the FormData (s15: only subject + file — the
+ *        pseudo rides in the Authorization: Bearer header, not in the
+ *        multipart body, and the backend rejects extra form fields)
  *  - (c) displays 413 error card on file too large
  *  - (d) displays 415 error card on unsupported extension — this is
  *        the AC9(b) vs AC9(a) discrimination test (same code
@@ -70,17 +72,22 @@ test.describe('Upload page', () => {
     await setPseudo(page, context);
     await page.route('**/api/documents/upload', async (route) => {
       // The browser sends a multipart/form-data payload — axios injects
-      // the boundary automatically. We assert the multipart body
-      // contains the three fields we expect (pseudo, subject, file)
-      // and their values. Playwright 1.49 doesn't expose parsed
-      // formData on the route, so we inspect the raw body string.
+      // the boundary automatically. s15 hard cut: the `pseudo` field
+      // no longer rides in the FormData; the backend derives the
+      // tenant key from the JWT in the Authorization: Bearer header
+      // and rejects any extra form field (422). We assert the
+      // multipart body contains ONLY the two declared fields
+      // (subject, file) and their values. Playwright 1.49 doesn't
+      // expose parsed formData on the route, so we inspect the raw
+      // body string.
       const body = route.request().postData() ?? '';
-      expect(body).toContain('name="pseudo"');
-      expect(body).toContain(VALID_PSEUDO);
       expect(body).toContain('name="subject"');
       expect(body).toContain('maths');
       expect(body).toContain('name="file"');
       expect(body).toContain('cours.pdf');
+      // The hard cut: no `pseudo` form field, no other surprises.
+      expect(body).not.toContain('name="pseudo"');
+      expect(body).not.toContain(VALID_PSEUDO);
       await route.fulfill({
         status: 201,
         contentType: 'application/json',

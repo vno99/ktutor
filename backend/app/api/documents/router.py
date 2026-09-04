@@ -143,7 +143,7 @@ async def upload(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=[
                 {
-                    "loc": ("body", sorted(unknown)[0]),
+                    "loc": ("body", min(unknown)),
                     "msg": (
                         "Champ de formulaire inattendu : "
                         + ", ".join(sorted(unknown))
