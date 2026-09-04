@@ -113,5 +113,36 @@
       "network": "Network error. Check your connection.",
       "retry": "Retry"
     }
+  },
+  "dashboard": {
+    "layout": {
+      "title": "My dashboard"
+    },
+    "eleve": {
+      "title": "My dashboard",
+      "subtitle": "Your progress, by subject.",
+      "globalRate": "Overall success rate",
+      "trend": "+4 pts this month",
+      "attempts": "{count, plural, =0 {no attempts} one {1 attempt} other {{count} attempts}}",
+      "lastActivity": "Last activity: {date}",
+      "chartTitle": "Success rate by subject",
+      "chartLegend": "Success rate (%)",
+      "tableCaption": "Success rate by subject (accessible equivalent of the chart)",
+      "tableHeaderSubject": "Subject",
+      "subjectRate": "Success rate",
+      "seeDetails": "See details",
+      "refresh": "Refresh data",
+      "refreshing": "Refreshing…",
+      "empty": "You haven't tried any exercise yet.",
+      "emptyCta": "Start by generating an exercise from the Chat tab.",
+      "emptyButton": "Go to chat",
+      "error401": "Session expired. Please sign in again.",
+      "error403": "Access denied.",
+      "errorNetwork": "Network error. Check your connection.",
+      "error500": "Server error. Please try again in a few minutes.",
+      "retry": "Retry",
+      "reconnect": "Sign in again",
+      "loading": "Loading your dashboard…"
+    }
   }
 }

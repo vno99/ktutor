@@ -113,5 +113,36 @@
       "network": "Erreur réseau. Vérifie ta connexion.",
       "retry": "Réessayer"
     }
+  },
+  "dashboard": {
+    "layout": {
+      "title": "Mon tableau de bord"
+    },
+    "eleve": {
+      "title": "Mon tableau de bord",
+      "subtitle": "Ta progression, par matière.",
+      "globalRate": "Taux de réussite global",
+      "trend": "+4 pts ce mois-ci",
+      "attempts": "{count, plural, =0 {aucune tentative} one {1 tentative} other {{count} tentatives}}",
+      "lastActivity": "Dernière activité : {date}",
+      "chartTitle": "Taux de réussite par matière",
+      "chartLegend": "Taux de réussite (%)",
+      "tableCaption": "Taux de réussite par matière (version accessible, équivalente au graphique)",
+      "tableHeaderSubject": "Matière",
+      "subjectRate": "Taux de réussite",
+      "seeDetails": "Voir les détails",
+      "refresh": "Rafraîchir les données",
+      "refreshing": "Rafraîchissement…",
+      "empty": "Tu n'as pas encore tenté d'exercice.",
+      "emptyCta": "Commence par générer un exercice depuis l'onglet Chat.",
+      "emptyButton": "Aller au chat",
+      "error401": "Session expirée. Reconnecte-toi.",
+      "error403": "Accès refusé.",
+      "errorNetwork": "Erreur réseau. Vérifie ta connexion.",
+      "error500": "Erreur serveur. Réessaie dans quelques minutes.",
+      "retry": "Réessayer",
+      "reconnect": "Se reconnecter",
+      "loading": "Chargement de ton tableau de bord…"
+    }
   }
 }
