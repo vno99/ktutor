@@ -11,13 +11,16 @@ cover the contract:
   averages (the classical bug),
 * per-pseudo isolation (alice's attempts are never visible to bob's
   aggregator call),
-* ``last_activity_at`` is the max of ``submitted_at`` per scope.
+* ``last_activity_at`` is the max of ``submitted_at`` per scope,
+* ``CAST(is_success AS FLOAT)`` is present in the compiled SQL — a
+  regression guard for the PostgreSQL/SQLite float-division drift
+  (see Major #2 in docs/reviews/s16-dashboard-eleve.md).
 """
 from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import StaticPool, create_engine
@@ -35,9 +38,7 @@ from app.core.database.models import (
     User,
     UserRole,
 )
-
 from app.services.dashboard.aggregator import aggregate_eleve_dashboard
-
 
 # ---------------------------------------------------------------------------
 # DB fixtures — local to this file (no refactor transverse per AGENTS.md).
@@ -194,7 +195,7 @@ def test_returns_empty_when_eleve_has_no_attempts(session: Session) -> None:
 
 
 def test_groups_by_subject_with_mean_is_success(session: Session) -> None:
-    base = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
     _seed_eleve_with_attempts(
         session,
         "alice",
@@ -227,7 +228,7 @@ def test_global_avg_is_overall_not_mean_of_subjects(session: Session) -> None:
     # 3 maths attempts (2 success, 1 fail) + 1 francais attempt (fail).
     # Global mean over 4 attempts = (2 + 0) / 4 = 0.5.
     # Mean of subject means = (2/3 + 0/1) / 2 = 1/3 — WRONG.
-    base = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
     _seed_eleve_with_attempts(
         session,
         "alice",
@@ -251,7 +252,7 @@ def test_global_avg_is_overall_not_mean_of_subjects(session: Session) -> None:
 def test_filters_by_student_pseudo(session: Session) -> None:
     # alice has 3 maths attempts, bob has 2 francais attempts. The
     # aggregator must ONLY return alice's data when called for alice.
-    base = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
     _seed_eleve_with_attempts(
         session,
         "alice",
@@ -278,7 +279,7 @@ def test_last_activity_at_is_max_submitted_at(session: Session) -> None:
     # global last_activity_at must equal the max — the same as the
     # most recent attempt, which is not necessarily the most recent
     # per subject.
-    base = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
     ts1 = base
     ts2 = base + timedelta(days=5)  # the max
     ts3 = base + timedelta(days=2)
@@ -299,3 +300,73 @@ def test_last_activity_at_is_max_submitted_at(session: Session) -> None:
 
     francais = next(s for s in resp.subjects if s.name == "francais")
     assert _as_naive(francais.last_activity_at) == _as_naive(ts3)
+
+
+def test_aggregator_compiles_cast_is_success_as_float(db_engine) -> None:
+    """Regression guard: ``CAST(is_success AS FLOAT)`` must be present in
+    BOTH queries (per-subject + global) emitted by the aggregator.
+
+    Why this test exists: SQLite (test backend) returns a float for
+    ``AVG(bool_col)`` even without an explicit CAST, so the existing
+    behaviour-driven tests do NOT catch a missing CAST. PostgreSQL
+    (production) does integer division on a bool column, which would
+    silently produce 0.0 for any eleve whose success rate is below
+    100% and non-zero attempts. Hooking into SQLAlchemy's
+    ``before_cursor_execute`` event to capture the rendered SQL is
+    the only backend-agnostic way to pin the invariant (cf. review
+    Major #2).
+
+    See ``docs/reviews/s16-dashboard-eleve.md`` and the inline
+    comment in ``app.services.dashboard.aggregator`` for the full
+    rationale.
+    """
+    Sess = sessionmaker(bind=db_engine, autoflush=False, expire_on_commit=False)
+    s = Sess()
+    try:
+        # Seed one user + one exercise to give the per-subject query
+        # a single row to aggregate. No attempts needed: the CAST
+        # appears in the SELECT list regardless of result rows.
+        user = _make_user("alice")
+        s.add(user)
+        s.flush()
+        doc = _make_document("alice", Subject.MATHS)
+        s.add(doc)
+        s.flush()
+        exo = _make_exercise("alice", Subject.MATHS, doc.id)
+        s.add(exo)
+        s.commit()
+
+        # Capture the SQL the aggregator actually emits.
+        captured: list[str] = []
+
+        def _record(conn, cursor, statement, parameters, context, executemany):
+            captured.append(statement)
+
+        from sqlalchemy import event
+
+        event.listen(db_engine, "before_cursor_execute", _record)
+        try:
+            aggregate_eleve_dashboard(s, "alice")
+        finally:
+            event.remove(db_engine, "before_cursor_execute", _record)
+    finally:
+        s.close()
+
+    # The aggregator runs exactly two SELECTs: the per-subject query
+    # and the global query. We assert the CAST appears in BOTH, on
+    # the AVG(is_success) operand.
+    assert len(captured) == 2, (
+        f"Expected 2 SELECTs from the aggregator, got {len(captured)}: {captured}"
+    )
+
+    per_subject_sql, global_sql = captured
+    assert "CAST(attempts.is_success AS FLOAT)" in per_subject_sql, (
+        "Per-subject query is missing CAST(is_success AS FLOAT). "
+        "Without the cast, PostgreSQL returns integer-division AVG "
+        "(0 instead of 0.667 for 2/3 successes). SQLite silently "
+        "returns a float and hides the bug from the test suite."
+    )
+    assert "CAST(attempts.is_success AS FLOAT)" in global_sql, (
+        "Global query is missing CAST(is_success AS FLOAT). Same "
+        "PostgreSQL/SQLite drift as the per-subject query."
+    )

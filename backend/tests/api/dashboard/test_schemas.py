@@ -57,7 +57,7 @@ def test_response_accepts_empty_subjects_list() -> None:
     # The empty case is a valid dashboard for an eleve with zero attempts.
     resp = EleveDashboardResponse(subjects=[], **{"global": _global(score=0.0, count=0)})
     assert resp.subjects == []
-    assert getattr(resp, "global_").exercises_count == 0
+    assert resp.global_.exercises_count == 0
 
 
 def test_subject_name_rejects_unknown_value() -> None:

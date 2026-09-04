@@ -9,16 +9,6 @@ The aggregator turns a (session, pseudo) pair into a fully-populated
 * **Global**: the same three aggregates, un-grouped, for the
   ``global`` block.
 
-Why the explicit ``CAST(is_success AS FLOAT)``?
-
-* SQLite (test backend) computes ``AVG(0)`` and ``AVG(1)`` as
-  integer division; ``AVG(CAST(0 AS FLOAT))`` is the only way to
-  get a fractional result. Without the cast, ``2/3`` rounds to
-  ``0.0`` and the dashboard's success rate is wrong on the test
-  backend.
-* PostgreSQL (prod) accepts the same syntax; the cast is a no-op
-  on numeric operands.
-
 The function is **pure**: it takes a session, runs queries, builds
 Pydantic models, returns. No I/O, no caching (the cache lives in
 ``app.services.dashboard.cache``), no auth (the router does that).
@@ -43,6 +33,19 @@ def aggregate_eleve_dashboard(db: Session, pseudo: str) -> EleveDashboardRespons
     transaction, mutate state, or call out to LLM / ChromaDB / S3.
     Caching is the caller's responsibility (the router layer).
     """
+    # CRITICAL: CAST(is_success AS FLOAT) is required for PostgreSQL.
+    # SQLite 3.x returns float for AVG(bool) even without CAST, so the
+    # test backend (in-memory SQLite) silently masks a missing CAST.
+    # PostgreSQL, on the other hand, returns numeric with integer
+    # division semantics: AVG of (0, 0, 1) = 0 instead of 0.333. The
+    # test ``test_aggregator_compiles_cast_is_success_as_float`` in
+    # ``tests/services/dashboard/test_aggregator.py`` pins this
+    # invariant by capturing the rendered SQL and asserting the CAST
+    # is present in BOTH queries below. Removing the CAST from either
+    # expression turns that test red regardless of the database
+    # backend. See ``docs/reviews/s16-dashboard-eleve.md`` Major #2
+    # for the original finding and the trap.
+
     # ---- Per-subject aggregation -------------------------------------------
     per_subject_rows = (
         db.query(
@@ -88,7 +91,9 @@ def aggregate_eleve_dashboard(db: Session, pseudo: str) -> EleveDashboardRespons
         last_activity_at=global_row.last_activity_at,
     )
 
-    return EleveDashboardResponse(subjects=subjects, global_=global_summary)
+    return EleveDashboardResponse.model_validate(
+        {"subjects": subjects, "global": global_summary}
+    )
 
 
 __all__ = ["aggregate_eleve_dashboard"]

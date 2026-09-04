@@ -9,7 +9,7 @@ import AxeBuilder from '@axe-core/playwright';
  *  - (b) chart legend is below the chart at 360px (AC #3)
  *  - (c) empty state when the eleve has no attempts
  *  - (d) redirects to /login when unauthenticated
- *  - (e/f) axe-core: 0 critical/serious on /fr/eleve/dashboard and /en
+ *  - (e/f) axe-core: 0 critical/serious on /fr/dashboard/eleve and /en
  *
  * The JWT is in localStorage (s13), so the test sets it directly
  * via `addInitScript` to skip the login redirect dance. The
@@ -81,7 +81,7 @@ test.describe('Dashboard eleve page', () => {
   }) => {
     await seedAuth(page);
     await stubDashboard(page, DASHBOARD_PAYLOAD);
-    await page.goto('/fr/eleve/dashboard');
+    await page.goto('/fr/dashboard/eleve');
     await expect(
       page.getByRole('heading', { name: 'Mon tableau de bord' }),
     ).toBeVisible();
@@ -106,7 +106,7 @@ test.describe('Dashboard eleve page', () => {
     await page.setViewportSize({ width: 360, height: 800 });
     await seedAuth(page);
     await stubDashboard(page, DASHBOARD_PAYLOAD);
-    await page.goto('/fr/eleve/dashboard');
+    await page.goto('/fr/dashboard/eleve');
     // The Recharts legend is inside an <ul> with class
     // "recharts-default-legend". The chart <svg> sits above it.
     const chart = page.locator('.recharts-wrapper').first();
@@ -126,7 +126,7 @@ test.describe('Dashboard eleve page', () => {
   test('(c) empty state when the eleve has no attempts', async ({ page }) => {
     await seedAuth(page);
     await stubDashboard(page, EMPTY_PAYLOAD);
-    await page.goto('/fr/eleve/dashboard');
+    await page.goto('/fr/dashboard/eleve');
     await expect(
       page.getByText("Tu n'as pas encore tenté d'exercice."),
     ).toBeVisible();
@@ -137,16 +137,16 @@ test.describe('Dashboard eleve page', () => {
 
   test('(d) redirects to /login when unauthenticated', async ({ page }) => {
     // No localStorage seed → AuthGuard sees !isAuthenticated.
-    await page.goto('/fr/eleve/dashboard');
-    await expect(page).toHaveURL(/\/fr\/login\?next=%2Ffr%2Feleve%2Fdashboard$/);
+    await page.goto('/fr/dashboard/eleve');
+    await expect(page).toHaveURL(/\/fr\/login\?next=%2Ffr%2Fdashboard%2Feleve$/);
   });
 
-  test('(e) axe-core: no critical/serious violations on /fr/eleve/dashboard', async ({
+  test('(e) axe-core: no critical/serious violations on /fr/dashboard/eleve', async ({
     page,
   }) => {
     await seedAuth(page);
     await stubDashboard(page, DASHBOARD_PAYLOAD);
-    await page.goto('/fr/eleve/dashboard');
+    await page.goto('/fr/dashboard/eleve');
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
       .analyze();
@@ -159,12 +159,12 @@ test.describe('Dashboard eleve page', () => {
     ).toEqual([]);
   });
 
-  test('(f) axe-core: no critical/serious violations on /en/eleve/dashboard', async ({
+  test('(f) axe-core: no critical/serious violations on /en/dashboard/eleve', async ({
     page,
   }) => {
     await seedAuth(page);
     await stubDashboard(page, DASHBOARD_PAYLOAD);
-    await page.goto('/en/eleve/dashboard');
+    await page.goto('/en/dashboard/eleve');
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
       .analyze();

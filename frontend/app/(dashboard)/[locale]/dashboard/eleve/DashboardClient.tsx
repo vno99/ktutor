@@ -278,6 +278,7 @@ export function DashboardClient() {
 function ErrorState({ code, onRetry }: { code: ErrorCode; onRetry: () => void }) {
   const t = useTranslations('dashboard.eleve');
   const tAuth = useTranslations('auth.errors');
+  const locale = useLocale();
   const { title, message, machineCode, cta } = (() => {
     if (code.kind === 'network') {
       return {
@@ -331,7 +332,7 @@ function ErrorState({ code, onRetry }: { code: ErrorCode; onRetry: () => void })
           <p className="text-xs text-text-secondary">Code : {machineCode}</p>
           {cta.kind === 'reconnect' ? (
             <a
-              href="/login"
+              href={`/${locale}/login`}
               className="mt-2 inline-flex items-center justify-center h-11 px-4 text-base font-medium rounded-sm bg-primary text-white hover:bg-primary-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             >
               {t('reconnect')}
@@ -356,13 +357,14 @@ function ErrorState({ code, onRetry }: { code: ErrorCode; onRetry: () => void })
 
 function EmptyState() {
   const t = useTranslations('dashboard.eleve');
+  const locale = useLocale();
   return (
     <Card className="flex flex-col items-center gap-3 py-8 text-center">
       <BookOpen size={32} className="text-text-tertiary" aria-hidden="true" />
       <p className="text-base text-text-primary">{t('empty')}</p>
       <p className="text-sm text-text-secondary">{t('emptyCta')}</p>
       <a
-        href="/chat"
+        href={`/${locale}/chat`}
         className="mt-2 inline-flex items-center justify-center h-11 px-4 text-base font-medium rounded-sm bg-primary text-white hover:bg-primary-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
       >
         {t('emptyButton')}

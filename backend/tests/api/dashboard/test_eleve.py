@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -32,7 +33,6 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from sqlalchemy import StaticPool, create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from unittest.mock import patch
 
 from app.core.auth.jwt import create_access_token
 from app.core.auth.passwords import hash_password
@@ -50,7 +50,6 @@ from app.core.database.models import (
 from app.core.database.session import get_db
 from app.main import app
 from app.services.dashboard import cache as dashboard_cache
-
 
 # ---------------------------------------------------------------------------
 # RSA keypair + settings (duplicated from test_users_create / test_documents
@@ -185,10 +184,10 @@ def _seed_attempts(
         )
         db.add(exo)
         db.flush()
-        base = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
-        n = 0
-        for is_success in [True] * successes + [False] * fails:
-            n += 1
+        base = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+        for n, is_success in enumerate(
+            [True] * successes + [False] * fails, start=1
+        ):
             db.add(
                 Attempt(
                     id=uuid.uuid4(),

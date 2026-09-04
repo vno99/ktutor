@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { useLocale } from 'next-intl';
 import { useAuthStore } from '@/lib/stores/authStore';
 
 /*
@@ -15,7 +16,9 @@ import { useAuthStore } from '@/lib/stores/authStore';
  *   2. Reads the store's ``hydrated`` and ``isAuthenticated`` flags.
  *   3. If still hydrating → renders nothing (no spinner, no flash).
  *   4. If hydrated and not authenticated → ``router.replace`` to
- *      ``/login?next=<current path>``.
+ *      ``/<locale>/login?next=<current path>`` (the current path
+ *      already includes the locale, so the next-URL round-trips
+ *      cleanly through the login redirect).
  *   5. If authenticated → renders ``{children}``.
  *
  * The redirect uses ``replace`` (not ``push``) so the dashboard URL
@@ -25,6 +28,7 @@ import { useAuthStore } from '@/lib/stores/authStore';
 export function AuthGuard({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() ?? '/';
+  const locale = useLocale();
 
   const hydrated = useAuthStore((s) => s.hydrated);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -38,9 +42,9 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (hydrated && !isAuthenticated) {
       const next = encodeURIComponent(pathname);
-      router.replace(`/login?next=${next}`);
+      router.replace(`/${locale}/login?next=${next}`);
     }
-  }, [hydrated, isAuthenticated, pathname, router]);
+  }, [hydrated, isAuthenticated, pathname, router, locale]);
 
   if (!hydrated) {
     return null;
