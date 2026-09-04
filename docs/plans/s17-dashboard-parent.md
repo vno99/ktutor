@@ -1,5 +1,5 @@
 ---
-validated: no
+validated: yes
 ---
 
 # Plan — Story s17-dashboard-parent
