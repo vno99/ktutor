@@ -7,7 +7,8 @@
       "url": [
         "http://localhost:3000/fr/",
         "http://localhost:3000/fr/chat",
-        "http://localhost:3000/fr/upload"
+        "http://localhost:3000/fr/upload",
+        "http://localhost:3000/fr/eleve/dashboard"
       ],
       "numberOfRuns": 1
     },

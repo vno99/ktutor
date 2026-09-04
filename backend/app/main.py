@@ -26,6 +26,7 @@ from loguru import logger
 
 from app.api.auth.router import router as auth_router
 from app.api.chat.router import router as chat_router
+from app.api.dashboard.eleve import router as dashboard_eleve_router
 from app.api.documents.router import router as documents_router
 from app.api.users.router import router as users_router
 from app.core.config import get_settings
@@ -74,6 +75,7 @@ app.include_router(chat_router)
 app.include_router(documents_router)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(dashboard_eleve_router)
 
 
 __all__ = ["app"]

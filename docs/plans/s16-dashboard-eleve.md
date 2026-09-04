@@ -31,14 +31,14 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
 
 ## Tasks (ordered)
 
-1. [ ] **Schemas Pydantic** dans `backend/app/api/dashboard/schemas.py` (nouveau fichier, ~50 lignes) :
+1. [x] **Schemas Pydantic** dans `backend/app/api/dashboard/schemas.py` (nouveau fichier, ~50 lignes) :
    - `SubjectName = Literal["maths", "francais"]` (réutilise `Subject` enum existant via `Literal[...]`, **pas** de nouvel enum pour éviter le drift).
    - `SubjectSummary { name: SubjectName, score_avg: float, exercises_count: int, last_activity_at: datetime | None }` (Pydantic v2, `Field(..., ge=0, le=1)` sur `score_avg` ; `exercises_count >= 0`).
    - `GlobalSummary { score_avg: float, exercises_count: int, last_activity_at: datetime | None }` (mêmes contraintes).
    - `EleveDashboardResponse { subjects: list[SubjectSummary], global: GlobalSummary }` (liste peut être vide si l'élève n'a jamais tenté d'exercice).
    - **Vérification** : `python -c "from app.api.dashboard.schemas import EleveDashboardResponse; print(EleveDashboardResponse.model_json_schema())"` affiche le JSON schema.
 
-2. [ ] **Service aggregator** dans `backend/app/services/dashboard/aggregator.py` (nouveau fichier, ~80 lignes) :
+2. [x] **Service aggregator** dans `backend/app/services/dashboard/aggregator.py` (nouveau fichier, ~80 lignes) :
    - `aggregate_eleve_dashboard(db: Session, pseudo: str) -> EleveDashboardResponse` (pure function, takes a session).
    - **Query 1** (per subject) : `SELECT e.subject, AVG(CAST(a.is_success AS FLOAT)) AS score_avg, COUNT(a.id) AS exercises_count, MAX(a.submitted_at) AS last_activity_at FROM attempts a JOIN exercises e ON a.exercise_id = e.id WHERE a.student_pseudo = :pseudo GROUP BY e.subject` → construit la liste `subjects`.
    - **Query 2** (global) : `SELECT AVG(CAST(a.is_success AS FLOAT)) AS score_avg, COUNT(a.id) AS exercises_count, MAX(a.submitted_at) AS last_activity_at FROM attempts a WHERE a.student_pseudo = :pseudo` → construit `global`. **Note** : `AVG` retourne `None` si la table est vide ; mapper à `0.0` + `last_activity_at=None`.
@@ -46,7 +46,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
    - **Empty edge case** : élève qui n'a jamais tenté d'exercice → `subjects=[]`, `global={score_avg: 0.0, exercises_count: 0, last_activity_at: None}`. Le router retourne 200, l'UI affiche l'empty state.
    - **Vérification** : `python -c "from app.services.dashboard.aggregator import aggregate_eleve_dashboard"` passe. Tests unitaires en Tâche 5.
 
-3. [ ] **Cache in-process** dans `backend/app/services/dashboard/cache.py` (nouveau fichier, ~40 lignes) :
+3. [x] **Cache in-process** dans `backend/app/services/dashboard/cache.py` (nouveau fichier, ~40 lignes) :
    - Module-level `dict[str, tuple[float, EleveDashboardResponse]]` (clé = `f"dashboard:eleve:{pseudo}"`, valeur = `(expires_at_monotonic, data)`).
    - `get_dashboard(pseudo: str) -> EleveDashboardResponse | None` : lit, vérifie TTL, retourne `None` si expiré (pas de `raise`).
    - `set_dashboard(pseudo: str, data: EleveDashboardResponse, ttl_seconds: int = 300) -> None` : écrit avec TTL.
@@ -55,7 +55,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
    - **Thread safety** : `threading.Lock` autour des accès (FastAPI uvicorn workers sont single-threaded async mais pytest fixtures peuvent re-enter). Pas de `asyncio.Lock` (le module est sync).
    - **Vérification** : `python -c "from app.services.dashboard.cache import get_dashboard, set_dashboard, invalidate_dashboard"` passe.
 
-4. [ ] **Router `GET /api/dashboard/eleve`** dans `backend/app/api/dashboard/eleve.py` (nouveau fichier, ~80 lignes) :
+4. [x] **Router `GET /api/dashboard/eleve`** dans `backend/app/api/dashboard/eleve.py` (nouveau fichier, ~80 lignes) :
    - Endpoint `GET /api/dashboard/eleve`.
    - Signature : `def get_eleve_dashboard(pseudo: str | None = Query(default=None, max_length=32, pattern=PSEUDO_REGEX), user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> EleveDashboardResponse`.
    - **Garde cross-tenant** : `assert_jwt_pseudo_matches_or_403(user, pseudo, route="/api/dashboard/eleve")` (importé depuis `app.core.auth.middleware`, livré s15). Si `pseudo is None` (cas par défaut, l'élève demande son propre dashboard) → no-op, on utilise `user.pseudo`. Si `pseudo is not None` (admin demande pour quelqu'un) → helper vérifie que `user.role is UserRole.ADMIN`, sinon 403.
@@ -66,7 +66,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
    - **Montage** dans `backend/app/main.py` : `from app.api.dashboard.eleve import router as dashboard_eleve_router; app.include_router(dashboard_eleve_router, prefix="/api/dashboard", tags=["dashboard"])`. Importer après les routers existants (chat, documents, users).
    - **Vérification** : `python -c "from app.api.dashboard.eleve import router; print([r.path for r in router.routes])"` liste `/eleve` ; `python -c "from app.main import app; print([r.path for r in app.routes if 'dashboard' in r.path])"` liste `/api/dashboard/eleve`.
 
-5. [ ] **Tests aggregator** dans `backend/tests/services/dashboard/test_aggregator.py` (nouveau fichier, ≥ 5 tests) :
+5. [x] **Tests aggregator** dans `backend/tests/services/dashboard/test_aggregator.py` (nouveau fichier, ≥ 5 tests) :
    - **Fixture** : `in_memory_db` (StaticPool SQLite en mémoire, `Base.metadata.create_all`), `seed_eleve_with_attempts` (crée 1 User + 3 Exercise [2 maths, 1 francais] + 5 Attempt avec `is_success` mixtes).
    - **`TestAggregateEleveDashboard`** :
      - `test_returns_empty_when_eleve_has_no_attempts` : élève alice, 0 Attempt → `subjects=[]`, `global.score_avg=0.0`, `global.exercises_count=0`, `global.last_activity_at=None`.
@@ -76,7 +76,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
      - `test_last_activity_at_is_max_submitted_at` : 3 attempts à 3 timestamps distincts → `last_activity_at = max`. Edge case : 1 seul attempt → `last_activity_at = that.submitted_at`.
    - **Vérification** : `pytest backend/tests/services/dashboard/test_aggregator.py -v` → 5/5 pass.
 
-6. [ ] **Tests cache** dans `backend/tests/services/dashboard/test_cache.py` (nouveau fichier, ≥ 4 tests) :
+6. [x] **Tests cache** dans `backend/tests/services/dashboard/test_cache.py` (nouveau fichier, ≥ 4 tests) :
    - **`TestDashboardCache`** :
      - `test_set_then_get_returns_data` : `set_dashboard("alice", data, ttl=300)` ; `clock=monotonic_base` ; `get_dashboard("alice", now_fn=lambda: monotonic_base + 10)` retourne `data`.
      - `test_expired_entry_returns_none` : `set_dashboard("alice", data, ttl=300)` ; `get_dashboard("alice", now_fn=lambda: monotonic_base + 301)` retourne `None`.
@@ -84,7 +84,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
      - `test_different_pseudos_have_separate_keys` : set("alice", ...) et set("bob", ...) ; get("alice") retourne alice data, get("bob") retourne bob data.
    - **Vérification** : `pytest backend/tests/services/dashboard/test_cache.py -v` → 4/4 pass.
 
-7. [ ] **Tests router `GET /api/dashboard/eleve`** dans `backend/tests/api/dashboard/test_eleve.py` (nouveau fichier, ≥ 6 tests) :
+7. [x] **Tests router `GET /api/dashboard/eleve`** dans `backend/tests/api/dashboard/test_eleve.py` (nouveau fichier, ≥ 6 tests) :
    - **Fixtures** : `rsa_keypair`, `_point_settings`, `db_engine`, `session_factory`, `client` (dupliquées depuis `test_users_create.py:79-166` + `test_documents.py`, AGENTS.md « Pas de refactor transverse »), `seeded_eleve_alice`, `seeded_eleve_bob`, `seeded_admin`, `seed_eleve_with_attempts(pseudo, attempts_data)` helper.
    - `_bearer(user) -> dict[str, str]` helper (réplique de `_admin_bearer`).
    - **`TestGetEleveDashboardAuth`** :
@@ -103,7 +103,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
    - **Régression** : `test_no_regression_on_existing_endpoints` : sanity check que les autres routes (chat, documents) répondent encore (1 smoke test par route, ou skip si trop couplé).
    - **Vérification** : `pytest backend/tests/api/dashboard/test_eleve.py -v` → 6+ tests pass.
 
-8. [ ] **Cache invalidation on new Attempt** dans `backend/app/api/exercises/router.py` (modification, ~5 lignes) :
+8. [x] **Cache invalidation on new Attempt** dans `backend/app/api/exercises/router.py` (modification, ~5 lignes) : **SKIPPED** — `backend/app/api/exercises/router.py` does not exist on `feature/s16-dashboard-eleve` (s04 / s07 are not yet shipped; research Fait n/a). Per the plan, do NOT create the endpoint here. The dashboard cache will be invalidated by TTL (5 min) until the exercises router is shipped and the wiring can land in s16b or directly in s04/s07.
    - Localiser l'endpoint qui crée un `Attempt` (s04 ou s07). **Si l'endpoint n'existe pas encore en s16** (s04 / s07 ne sont pas encore au statut « shipped » — vérifier), reporter cette tâche à Tâche « après merge de s04 / s07 ». **Vérification préalable** : `grep -n "Attempt(" backend/app/api/exercises/router.py` ; si 0 hit, **STOP et reporter** que l'endpoint n'existe pas, l'invalidation sera câblée par la story qui crée l'endpoint.
    - Si l'endpoint existe : après le `session.add(Attempt(...))` et avant le `session.commit()`, ajouter `from app.services.dashboard.cache import invalidate_dashboard; invalidate_dashboard(pseudo=user.pseudo)`. (Si s04 utilise un `pseudo` body, utiliser `body.pseudo` ; si s15 a migré vers JWT, utiliser `user.pseudo` — adapter selon l'état du repo au moment de l'implémentation.)
    - **Note** : `set_dashboard` et `invalidate_dashboard` sont sync ; le router est probablement `async def` (FastAPI standard). Appeler `invalidate_dashboard(...)` directement (pas `await`) — c'est sync.
@@ -116,12 +116,12 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
    - **Si l'endpoint Attempt n'existe pas** : ne pas créer l'endpoint dans cette story (hors-scope, s04 / s07 owner). Câbler `invalidate_dashboard` est conditionnel — vérifier l'état du repo avant d'exécuter.
    - **Vérification** : `pytest backend/tests/api/dashboard/test_eleve.py::TestGetEleveDashboardCache::test_new_attempt_invalidates_cache -v` → 1/1 pass (si l'endpoint Attempt existe).
 
-9. [ ] **`pnpm add recharts` + lockfile** dans `frontend/package.json` + `frontend/pnpm-lock.yaml` :
+9. [x] **`pnpm add recharts` + lockfile** dans `frontend/package.json` + `frontend/pnpm-lock.yaml` :
    - Commande : `cd frontend && pnpm add recharts@^2.13.0` (pnpm 10.15, Node ≥ 20).
    - Vérifier le diff : `git diff frontend/package.json` montre `"recharts": "^2.13.0"` ajouté aux `dependencies`. **Ne pas** ajouter aux `devDependencies` (recharts est utilisé en runtime).
    - **Vérification** : `cd frontend && pnpm install --frozen-lockfile` ne casse pas ; `ls frontend/node_modules/recharts/package.json` existe.
 
-10. [ ] **Route group `(dashboard)/[locale]/` + auth guard** dans `frontend/app/(dashboard)/[locale]/layout.tsx` (nouveau fichier, ~50 lignes) :
+10. [x] **Route group `(dashboard)/[locale]/` + auth guard** dans `frontend/app/(dashboard)/[locale]/layout.tsx` (nouveau fichier, ~50 lignes) :
     - Réplique la structure de `frontend/app/(public)/[locale]/layout.tsx` (`<NextIntlClientProvider>` + `<Header>` + `<main>`).
     - **Auth guard** : composant client interne `'use client'` qui :
       1. `useEffect(() => { useAuthStore.getState().hydrate() }, [])` au mount.
@@ -133,7 +133,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
     - **i18n** : ajouter `dashboard.layout.title` (« Mon tableau de bord » / « My dashboard ») dans `messages/fr.json` + `messages/en.json` namespace `dashboard`.
     - **Vérification** : `cd frontend && npx tsc --noEmit` ne montre pas de nouvelle erreur ; `cd frontend && npx next build` ne casse pas (mais on n'a pas encore la page `/dashboard/eleve`).
 
-11. [ ] **Page `/dashboard/eleve` + DashboardClient** dans `frontend/app/(dashboard)/[locale]/eleve/dashboard/page.tsx` (nouveau) + `frontend/app/(dashboard)/[locale]/eleve/dashboard/DashboardClient.tsx` (nouveau, ~200 lignes) :
+11. [x] **Page `/dashboard/eleve` + DashboardClient** dans `frontend/app/(dashboard)/[locale]/eleve/dashboard/page.tsx` (nouveau) + `frontend/app/(dashboard)/[locale]/eleve/dashboard/DashboardClient.tsx` (nouveau, ~200 lignes) :
     - **`page.tsx`** (server component, réplique du pattern `chat/page.tsx:34-42`) :
       - `export const dynamic = "force-dynamic"` (le dashboard n'a pas de cache statique).
       - Server-side : récupère l'access token via `cookies()` (helper next/headers), appelle `apiClient.get('/api/dashboard/eleve', { headers: { Authorization: `Bearer ${token}` } })`, gère les erreurs 401 (redirect `/login`), passe les données initiales à `<DashboardClient>`.
@@ -150,7 +150,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
       - **Bouton Rafraîchir** : state `isRefreshing`, icône `refresh-cw` → `loader-2` pendant le refresh, label `dashboard.eleve.refresh` → `dashboard.eleve.refreshing`. Appelle `apiClient.get('/api/dashboard/eleve', { headers: { 'Cache-Control': 'no-cache' } })` puis `invalidate_dashboard` côté frontend (re-set le state). Note : le `Cache-Control: no-cache` header ne traverse pas jusqu'au backend (l'API backend a son propre cache in-process) ; pour vraiment bypass le cache, on POST un endpoint `/api/dashboard/eleve/invalidate` (admin/eleve self) ou on accepte que le bouton respecte le TTL 5 min. **Décision à acter** : pas d'endpoint invalidate exposé, le bouton Refresh hit l'API qui hit le cache (TTL respecté) — c'est OK pour la POC. Le bouton sert surtout à refresh après une nouvelle tentative (5 min de latence max).
     - **Vérification** : `cd frontend && npx tsc --noEmit` 0 erreur ; `cd frontend && npx next build` build OK ; `pnpm exec playwright test e2e/dashboard.spec.ts` (cf. Tâche 12) 0 violation.
 
-12. [ ] **Tests e2e + axe-core + Lighthouse a11y** dans `frontend/e2e/dashboard.spec.ts` (nouveau fichier, ≥ 4 tests) + `frontend/lighthouserc.json` (modification) :
+12. [x] **Tests e2e + axe-core + Lighthouse a11y** dans `frontend/e2e/dashboard.spec.ts` (nouveau fichier, ≥ 4 tests) + `frontend/lighthouserc.json` (modification) :
     - **`frontend/e2e/dashboard.spec.ts`** (Playwright + @axe-core/playwright) :
       - **Setup** : créer un user alice, login, seed 3 maths attempts + 2 francais attempts via `request.post('/api/attempts/...')` ou via le helper backend de seed. **Note** : si les endpoints Attempt ne sont pas accessibles en e2e (auth + tests), utiliser un seed direct via `psql` ou via un endpoint de test (`POST /api/test/seed-attempts` non-production). **Recommandation** : créer un fixture helper `seed_attempts_via_api(page, attempts_data)` qui hit les endpoints s04/s07 (ou qui hit directement la DB via un endpoint de test interne — à confirmer avec l'owner s04/s07).
       - **`TestDashboardPage`** :
@@ -162,7 +162,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
     - **`frontend/lighthouserc.json`** : étendre le tableau `collect.url` avec `"http://localhost:3000/fr/dashboard/eleve"`. L'assertion `assertions` reste la même (categories:a11y ≥ 90).
     - **Vérification** : `pnpm exec playwright test e2e/dashboard.spec.ts --reporter=list` 5/5 pass ; `pnpm exec lhci collect` (Lighthouse CI) score a11y ≥ 90 sur `/fr/dashboard/eleve`.
 
-13. [ ] **Run full backend + frontend test suite + i18n check** :
+13. [x] **Run full backend + frontend test suite + i18n check** :
     - `cd backend && pytest tests/ -v --tb=short` → 0 régression sur les tests s04, s07, s09, s10, s12, s13, s13b, s14, s15 existants.
     - `cd backend && ruff check app/ tests/` → 0 nouveau warning.
     - `cd backend && mypy app/` → 0 nouvelle erreur.
@@ -171,7 +171,7 @@ Complexity (re-scored): **4** (story declared 3, raised after reading the code �
     - `cd frontend && pnpm exec playwright test e2e/ --reporter=list` → 0 régression sur les e2e s11b, s11c, s13, s15 existants + les 5 nouveaux dashboard.
     - **Vérification** : tous les jobs CI restent verts.
 
-14. [ ] **Conventional commit unique** : `feat(frontend+api): add eleve dashboard with progress metrics (s16)` couvrant tous les fichiers modifiés + créés + le research + le design + le plan.
+14. [x] **Conventional commit unique** : `feat(frontend+api): add eleve dashboard with progress metrics (s16)` couvrant tous les fichiers modifiés + créés + le research + le design + le plan.
     - **Vérification** : `git log -1` montre un seul commit avec tous les fichiers.
 
 ## Run interdicts
