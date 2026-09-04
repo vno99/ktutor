@@ -3,158 +3,144 @@
 Story: `s16-dashboard-eleve`
 Branch: `feature/s16-dashboard-eleve`
 Reviewer: anti-hallucination subagent (contexte vierge, `review-antihallu` préchargé)
-Diff judged: `git diff origin/main...feature/s16-dashboard-eleve`
 Date: 2026-09-04
 
 ---
 
-## Test suite run
+## Review history
 
-- Backend `pytest tests/` : **602 tests pass, 0 regression**. Full run 3:14.
-- Frontend dashboard e2e (`e2e/dashboard.spec.ts`) : 6 tests pass.
-- Aggregator tests : 5/5 pass.
-- Cache tests : 5/5 pass.
-- Router tests : 9/9 pass (incluant cross-tenant 403s + admin bypass).
-- Frontend i18n check (`scripts/check-i18n.sh`) : exit 0, aucune string en dur.
-- Frontend `tsc --noEmit` : 0 erreur.
+- **Pass 1** (commit `3e318a6`) : `Max severity: major` / `Ship allowed: no`. 2 Major findings (URL drift + untested central invariant), 6 Minor (ruff, mypy, conventions, plan deviations).
+- **Fix run** (commit `9891b93`) : URL renommée + test de garde CAST AS FLOAT + ruff + mypy + locale-prefixed links.
+- **Pass 2** (this report) : `Max severity: none` / `Ship allowed: yes`. Tous les findings corrigés, aucune régression.
 
 ---
 
-## Anti-hallucination mutations (verified by the reviewer against the actual code)
+## Test suite run (independent, pass 2)
 
-| Invariant | Mutation | Result | Verdict |
+- Backend `pytest tests/` : **603 tests pass, 0 regression** (was 602, +1 pour le CAST guard).
+- Frontend `pnpm exec playwright test` : **35 e2e tests pass** (6 dashboard + 29 existants).
+- `mypy app/services/dashboard/ app/api/dashboard/` : dashboard module clean (2 erreurs préexistantes dans `app/core/auth/middleware.py` non liées). Project-wide : 24 erreurs (identique à pre-fix, 0 nouvelle).
+- `ruff check app/ tests/` : **0 issues** (was 9 pre-fix).
+- `npx tsc --noEmit` : clean.
+- `bash scripts/check-i18n.sh` : exit 0.
+
+---
+
+## Verification of the fix run (pass 2)
+
+### Major #1 — URL renommée à `/<locale>/dashboard/eleve`
+
+- `git show --name-status 9891b93` confirme R099/R100 renames depuis `frontend/app/(dashboard)/[locale]/eleve/dashboard/{page,DashboardClient}.tsx` vers `frontend/app/(dashboard)/[locale]/dashboard/eleve/{page,DashboardClient}.tsx`.
+- File system check : ancien chemin n'existe plus ; nouveau chemin contient les deux fichiers.
+- `frontend/e2e/dashboard.spec.ts` (l. 84, 109, 129, 141, 149, 167) : les 6 tests naviguent vers `/fr/dashboard/eleve` (ou `/en/dashboard/eleve`). Test (d) assert le regex de redirect `/\/fr\/login\?next=%2Ffr%2Fdashboard%2Feleve$/`.
+- `frontend/lighthouserc.json` (l. 11-12) : `/fr/dashboard/eleve` et `/en/dashboard/eleve` présents.
+- Les 6 tests e2e passent, y compris le test de redirect. **AC #2 de la story satisfaite** (servie à `/<locale>/dashboard/eleve`, locale-prefixed par convention projet).
+
+**Verdict : Major #1 corrigé.**
+
+### Major #2 — CAST AS FLOAT regression-guard test
+
+- `backend/tests/services/dashboard/test_aggregator.py::test_aggregator_compiles_cast_is_success_as_float` (l. 305-372).
+- Le test hooke `sqlalchemy.event.listen(db_engine, "before_cursor_execute", _record)` pour capturer le SQL rendu, appelle `aggregate_eleve_dashboard(s, "alice")`, et assert `"CAST(attempts.is_success AS FLOAT)" in per_subject_sql` AND `"CAST(attempts.is_success AS FLOAT)" in global_sql`.
+- **Test de neutralisation (vérifié)** : le reviewer a **physiquement retiré** le CAST des deux `func.avg(cast(...))` dans `aggregator.py`, restauré le fichier, lancé `pytest tests/services/dashboard/test_aggregator.py -v` :
+  - Avec CAST (production) : 6/6 pass.
+  - Sans CAST (muté) : 5/6 pass, **1 rouge** (le nouveau test), les 5 autres passent (confirmant le masquage SQLite diagnostiqué en pass 1).
+  - `git diff --exit-code backend/app/services/dashboard/aggregator.py` après restore : clean.
+- Le bloc de documentation `CRITICAL` dans `aggregator.py` (l. 36-47) explique le piège SQLite vs PostgreSQL, pointe vers le nouveau test comme garde, et référence la review. Un futur implémenteur qui retire le CAST verra pourquoi et sera tourné rouge par le test.
+
+**Verdict : Major #2 corrigé, le test mord réellement.**
+
+### Minor #1 — Ruff clean
+
+- `ruff check app/ tests/` : **0 issues** (was 9). Les 8 auto-fixables résolus, le B009 dans `test_schemas.py` remplacé par accès direct à l'attribut, le SIM113 dans `test_eleve.py` remplacé par `enumerate`.
+
+**Verdict : Minor #1 corrigé.**
+
+### Minor #2 — Mypy clean sur dashboard module
+
+- `mypy app/services/dashboard/ app/api/dashboard/` : 2 erreurs restantes dans `app/core/auth/middleware.py` (l. 87, 111), préexistantes et non liées. L'erreur `aggregator.py:91` (Unexpected keyword argument "global_") est **partie** — le fix utilise `model_validate({"subjects": ..., "global": ...})` qui exerce l'alias proprement. Le `populate_by_name=True` dans `schemas.py:75` le permet.
+
+**Verdict : Minor #2 corrigé (dashboard module).**
+
+### Minor #6 — Locale-prefixed links
+
+- `frontend/app/(dashboard)/[locale]/AuthGuard.tsx` (l. 3, 30, 46, 47) : import `useLocale`, appel `useLocale()`, construction du redirect `\`/${locale}/login?next=${next}\``.
+- `frontend/app/(dashboard)/[locale]/dashboard/eleve/DashboardClient.tsx` (l. 281, 335 reconnect, 360, 367 CTA) : `ErrorState` et `EmptyState` utilisent `useLocale()` et construisent `\`/${locale}/login\`` et `\`/${locale}/chat\``.
+- Le test e2e (d) confirme que le redirect finit par `?next=%2Ffr%2Fdashboard%2Feleve` (le nouveau path), passant en browser réel.
+
+**Verdict : Minor #6 corrigé.**
+
+---
+
+## Anti-hallucination mutations (re-run on the fix commit)
+
+| Invariant | Mutation | Résultat | Verdict |
 | --- | --- | --- | --- |
-| Cache TTL | (Cache module : impossible de muter sans casser l'API) | OK par les tests d'expiry | ✅ |
-| Cross-tenant isolation | Tentative mutation sur `student_pseudo` filter (n'a pas été tentée par le reviewer) | Vérifiée par lecture du code : `WHERE a.student_pseudo = :pseudo` dans `aggregator.py` | ✅ |
-| Auth dépendance | Retrait de `Depends(require_role(...))` (non tenté par le reviewer) | Vérifiée par lecture : `Depends(get_current_user)` + helper s15 `assert_jwt_pseudo_matches_or_403` | ✅ |
-| `CAST(is_success AS FLOAT)` | **Retrait effectif du CAST dans les 2 queries SQL** | **0 tests went red.** Le CAST n'est **pas** vérifié par la suite de tests sur SQLite 3.x (qui retourne déjà un float). | ⚠️ Invariant central non couvert par les tests (cf. Major #2) |
+| `CAST(is_success AS FLOAT)` | Retrait physique du CAST des deux `func.avg(cast(...))` dans `aggregator.py` | **1 test rouge** (le nouveau `test_aggregator_compiles_cast_is_success_as_float`) ; 5/6 autres tests aggregator passent (confirmant le masquage SQLite) | **Mord confirmé** |
+| URL servie à `/<locale>/dashboard/eleve` | (non re-muté ; le rename était le fix lui-même) | Tests e2e (a)-(f) naviguent vers la nouvelle URL et passent ; le regex de redirect en (d) matche | **Corrigé** |
+| AuthGuard locale redirect | (non re-muté ; le fix a ajouté `useLocale`) | E2e (d) passe ; `useLocale()` câblé | **Corrigé** |
 
 ---
 
-## Findings
+## Findings (pass 2)
 
 ### Critical (blocks ship)
 
-**Aucun**.
+**Aucun.**
 
 ### Major
 
-#### Major #1 — URL drift from story AC (paths match, story text does not)
-
-- **Story AC #2** (`docs/stories.md:799-830`) : _"The `/dashboard/eleve` page renders..."_
-- **Plan §11** : _"Page `/dashboard/eleve` + DashboardClient..."_ + vérification finale référence `/fr/dashboard/eleve`.
-- **Design § 4.1** (`docs/designs/s16-dashboard-eleve.md:657`) : _"page `/dashboard/eleve`"_
-- **File path réel** : `frontend/app/(dashboard)/[locale]/eleve/dashboard/page.tsx` → résout en URL `/<locale>/eleve/dashboard` (ex : `/fr/eleve/dashboard`).
-- **E2e tests + Lighthouse** : tous alignés sur `/fr/eleve/dashboard`.
-
-L'implémentation, les e2e, le `lighthouserc.json` et le chemin de fichier sont **mutuellement cohérents**. Mais l'AC textuel de la story, le plan et le design disent `/dashboard/eleve`. C'est un drift de nommage entre la spec (textes) et le code (chemin réel).
-
-L'AC textuel est lui-même ambigu : la route est sous le préfixe de locale `localePrefix: 'always'`, donc l'URL canonique est `/<locale>/eleve/dashboard`, pas `/dashboard/eleve`.
-
-**Pourquoi c'est Major** : un utilisateur navigant à `/dashboard/eleve` (ce que la story dit être l'URL) tombe sur 404. L'AC textuel n'est pas satisfait. À arbitrer : soit corriger l'AC (et le plan/design), soit corriger le chemin de fichier.
-
-**Pas bloquant techniquement** : le dashboard fonctionne, l'utilisateur peut y accéder via l'URL réellement servie.
-
-#### Major #2 — The central invariant of the story is untested
-
-**Le « point everything turns on »** du plan (et de la recherche) est que `score_avg = mean(Attempt.is_success)` exige `CAST(... AS FLOAT)` pour éviter la division entière. Le reviewer a **physiquement retiré le CAST** des deux queries SQL dans `aggregator.py` et a relancé les tests :
-
-- **0 test rouge** sur les 28 tests dashboard.
-- Le CAST n'est exercé par aucun test du projet.
-
-**Cause racine** : SQLite 3.x (utilisé par les tests in-memory) retourne déjà un float pour `AVG(bool_col)` même sans CAST explicite. La claim de la recherche (« SQLite calcule `AVG(0)` et `AVG(1)` en division entière ») est **datée / incorrecte pour SQLite moderne**. Le CAST reste **correct en pratique** pour PostgreSQL en production, mais l'invariant n'est pas défendu par la suite de tests.
-
-**Pourquoi c'est Major** : si quelqu'un retire le CAST demain en pensant qu'il est inutile (le test passe), l'agrégat fonctionne toujours en SQLite (tests verts) mais peut diverger en PostgreSQL (production). Pas détectable avant déploiement.
-
-**Fix** : ajouter un test qui pin le comportement float, idéalement un test à valeurs non-triviales (`mean(2 success / 3 attempts) ≈ 0.667`, pas 0 ou 1) ET un commentaire dans `aggregator.py` expliquant que le CAST est obligatoire pour PostgreSQL (pas pour SQLite). Cf. s16c.
+**Aucun.**
 
 ### Minor
 
-#### Minor #1 — Ruff issues introduced (9 nouveaux, 8 auto-fixables)
+**Aucun nouveau.** Les 6 Minor listés en pass 1 sont soit corrigés (1, 2, 6), soit acceptés comme no-finding (3, 4, 5, 7, 8).
 
-- 5× `UP017` (`datetime.UTC` alias)
-- 2× `I001` (unsorted imports)
-- 1× `SIM113` (use `enumerate()`)
-- 1× `B009` (`getattr` with constant)
+### Re-check des Minor acceptés (no regression)
 
-Plan §13 dit « 0 nouveau warning ». Fix : `ruff check --fix`.
+- Minor #3 (Recharts deprecation) — toujours présent dans pnpm-lock, inchangé. Accepté.
+- Minor #4 (test_schemas.py unplanned) — toujours présent et passant. Accepté.
+- Minor #5 (AuthGuard extracted) — toujours extrait, utilise maintenant `useLocale()`. Accepté.
+- Minor #7 (plan §11 server-side fetch deviation) — page.tsx utilise toujours client-side fetch. Accepté.
+- Minor #8 (Task 8 SKIPPED, no exercises HTTP router) — pas de `backend/app/api/exercises/router.py` créé. Plan § 8 corrigé pour marquer SKIPPED. Accepté.
 
-#### Minor #2 — Mypy new error in `aggregator.py:91`
+### Cross-tenant / RBAC / cache — regression check (full branch diff)
 
-`Unexpected keyword argument "global_"` — la config Pydantic v2 `populate_by_name` n'est pas reconnue par le stub mypy. Le test passe (Pydantic accepte `global_` via `Field(alias="global")`). Cosmetic. Workaround : passer par `model_validate({...}, by_alias=False)` ou utiliser un dict spread.
-
-#### Minor #3 — Recharts deprecation warning
-
-Lockfile : « 1.x and 2.x branches are no longer active. Bump to Recharts v3 to receive latest features and bugfixes. » Non bloquant pour cette story, mais suivi de maintenance à prévoir (s22 ou s23).
-
-#### Minor #4 — Extra test file not listed in plan
-
-`backend/tests/api/dashboard/test_schemas.py` (91 lignes, 9 tests) ajoute de la valeur (pin des invariants du schema Pydantic) mais n'est pas listé dans la section « Files touched » du plan. Pas un défaut, juste non planifié.
-
-#### Minor #5 — AuthGuard extracted to its own file
-
-Le plan §10 décrivait l'auth guard inline dans `layout.tsx`. L'implémentation l'a extrait dans `AuthGuard.tsx`. Séparation des responsabilités raisonnable, pas un défaut. À noter pour les futures stories du route group `(dashboard)/`.
-
-#### Minor #6 — Hardcoded `/login` et `/chat` sans préfixe de locale
-
-`DashboardClient.tsx` et `AuthGuard.tsx` utilisent `<a href="/login">` et `<a href="/chat">` sans préfixe `[locale]`. Le middleware next-intl redirige à runtime donc ça fonctionne, mais le code viole la convention `[locale]/*` du projet. À corriger en `<Link href={\`/\${locale}/login\`}>` ou utiliser `useRouter` de next-intl.
-
-#### Minor #7 — Plan §11 server-side fetch deviation (no finding, intentional)
-
-Le plan recommandait server-side fetch, mais le JWT est en `localStorage` (pas en cookie), donc un server component Next.js ne peut pas lire le Bearer header. L'implémentation a dévié en client-side fetch via `apiClient` (interceptor JWT de s13). **Cohérent** avec le pattern `s11b/s11c` (chat, upload). Pas un défaut, mais le plan n'a pas été mis à jour pour acter cette décision.
-
-#### Minor #8 — Task 8 SKIPPED (no finding, justified)
-
-**État vérifié** :
-- s04 et s07 sont **shippés** : commits `3887644` (QCM grader) et `473181c` (LLM-as-judge text grader).
-- Le modèle `Attempt` existe dans `backend/app/core/database/models.py`.
-- Les services `qcm_grader` et `text_grader` existent dans `backend/app/services/exercises/`.
-- **Aucun router HTTP** `backend/app/api/exercises/router.py` n'existe (ni dans `git diff origin/main...feature/s16-dashboard-eleve`, ni dans le repo).
-
-Le plan a été corrigé post-exécution (commit `a599f07`) pour acter ce constat : « s04 et s07 sont shippés ; ce qui manque est un router HTTP `exercises` pour créer un `Attempt` via API ». Le câblage `invalidate_dashboard` attendra ce router (s16b, ou extension de s04/s07, ou une story future).
-
-**Recommandation du plan respectée** : « ne pas blocker s16, accepter le TTL 5 min pour la POC ». La Tâche 8 est marquée `[x]` avec rationale SKIPPED dans `docs/plans/s16-dashboard-eleve.md`.
+- `backend/app/api/dashboard/eleve.py:80` — `assert_jwt_pseudo_matches_or_403` (s15 helper) toujours appelé.
+- `backend/app/services/dashboard/aggregator.py:58, 84` — `Attempt.student_pseudo == pseudo` filter toujours présent dans les deux queries.
+- `backend/app/services/dashboard/cache.py` — clé = `dashboard:eleve:{pseudo}` ; lock-protected ; TTL via `time.monotonic`. Inchangé par le fix.
+- `backend/app/main.py:78` — `app.include_router(dashboard_eleve_router)` toujours enregistré.
+- 9 router tests passent (3 cross-tenant 403 + admin bypass + happy + empty + cache hit + cache invalidate + 2 auth 401).
+- **Aucun drift sur l'architecture core.**
 
 ---
 
 ## What was NOT verified by the reviewer
 
-- **Browser rendering** : `pnpm dev` n'a pas été lancé. Les e2e tests + axe-core + Lighthouse sont écrits mais le reviewer ne les a pas exécutés dans un vrai browser.
-- **Real JWT auth flow in e2e** : les e2e injectent un fake JWT dans `localStorage` et stubent `/api/dashboard/eleve`. L'interceptor auth réel de s13 est bypassé.
-- **Lighthouse CI** : config mise à jour, run réel non exécuté par le reviewer.
-- **Production PostgreSQL behavior** : tout le SQL est vérifié sur SQLite. PostgreSQL peut diverger (cf. Major #2 sur le CAST).
+- **Browser rendering** de l'URL live `/<locale>/dashboard/eleve` : les tests e2e + axe-core exercent l'URL en headless Chromium (35/35 pass, 2 scans axe-core sur /fr et /en), mais le reviewer n'a pas ouvert manuellement la page dans un vrai browser. Un smoke test humain est recommandé avant ship pour confirmer que le layout visuel matche `docs/designs/s16-dashboard-eleve.html`.
+- **Lighthouse CI real run** : la config est à jour et bien formée, mais un vrai `lhci autorun` n'a pas été exécuté par le reviewer. L'assertion a11y ≥ 90 est posée mais non vérifiée à runtime.
+- **Production PostgreSQL behavior** : SQLite dans le test backend n'exerce pas la divergence float-vs-integer division que le nouveau test CAST défend. Le nouveau test pin l'émission SQL quel que soit le backend, donc l'invariant est défendu. Mais un vrai run d'intégration PostgreSQL est best-effort (per AGENTS.md).
+- **Real JWT auth flow in e2e** : les e2e injectent un fake JWT dans `localStorage` et stubent l'API. Le chemin interceptor complet (refresh on 401, etc.) n'est pas exercé end-to-end. Même caveat que les reviews précédentes.
 
 ---
 
-## Conformity check
+## Conformity check (re-validé après fix)
 
-- AGENTS.md : ✅ JWT en `localStorage` (s11a/s11b), `assert_jwt_pseudo_matches_or_403` (s15), cache TTL 5 min, clé `dashboard:eleve:{pseudo}`, pas de try/except muets, pas de log de tokens.
-- i18n : ✅ label `dashboard.eleve.tauxReussite` (« Taux de réussite » / « Success rate ») utilisé, **pas** « Score moyen ».
-- Multi-tenancy : ✅ filtre `student_pseudo` partout, helper s15 pour cross-tenant guard, cache key partagée admin/eleve (intentionnel, testé).
-- Design system : ✅ tokens utilisés systématiquement (`text-text-primary`, `bg-surface-subtle`, `bg-primary`, `var(--color-primary)`), aucune couleur ad-hoc. Le tone badge a une adaptation a11y documentée (dot `aria-hidden` + `bg-surface-subtle` + `text-text-primary`).
-- Accessibilité : ✅ `aria-busy`, `aria-live="polite"`, `aria-disabled` + `tabindex={-1}`, `role="alert"` et `role="status"`, table sr-only pour le chart.
-
----
-
-## Recommendations (for the fix run)
-
-1. **Major #1** : arbitrer l'URL avec l'utilisateur (le reviewer ne tranche pas un drift AC/implémentation). Soit :
-   - (a) Renommer le chemin `frontend/app/(dashboard)/[locale]/eleve/dashboard/page.tsx` → `frontend/app/(dashboard)/[locale]/dashboard/eleve/page.tsx` (et corriger les e2e + Lighthouse + liens internes).
-   - (b) Corriger l'AC de la story pour acter `/<locale>/eleve/dashboard` (et corriger le plan § 11 + le design § 4.1).
-2. **Major #2** : ajouter un test qui pin le CAST AS FLOAT, plus un commentaire dans `aggregator.py` expliquant que le CAST est obligatoire pour PostgreSQL (pas pour SQLite).
-3. **Minor #1** : `ruff check --fix` + 1 issue manuelle (`B009`).
-4. **Minor #2** : refactor du `global_` kwarg pour éviter le warning mypy.
-5. **Minor #6** : préfixer `/login` et `/chat` avec `[locale]` dans `DashboardClient.tsx` et `AuthGuard.tsx`.
+- **AGENTS.md** : ✅ JWT en `localStorage`, `assert_jwt_pseudo_matches_or_403` (s15), cache TTL 5 min, cache key par pseudo, pas de try/except muets, pas de log de tokens.
+- **i18n** : ✅ label `dashboard.eleve.tauxReussite` (« Taux de réussite »), aucune string en dur (check-i18n.sh exit 0).
+- **Multi-tenancy** : ✅ `student_pseudo` filter sur les deux queries, helper s15, cache key par pseudo, tests cross-tenant passent.
+- **Design system** : ✅ tokens utilisés systématiquement, aucune couleur ad-hoc.
+- **Accessibilité** : ✅ scans axe-core passent sur /fr et /en (tests e et f), `aria-live`, `aria-disabled`, `role="alert"`, focus visible.
 
 ---
 
 ## Verdict
 
 - **0 critical** findings.
-- **2 major** findings (URL drift + untested central invariant).
-- **6 minor** findings (lint, mypy, conventions, plan deviations documentées).
+- **0 major** findings.
+- **0 new minor** findings.
 
-**Ship allowed: no** — Major #1 et Major #2 doivent être arbitrés/corrigés avant ship. L'implémentation est saine dans son cœur (cache, multi-tenancy, RBAC, design system, i18n, a11y), les findings sont localisés.
+Le fix run a correctement adressé les 2 Major (URL renommée pour matcher l'AC, CAST AS FLOAT pinné par un test qui mord réellement) et les 3 Minor claimés (1 : ruff clean, 2 : dashboard mypy clean, 6 : locale-prefixed links). Les 35 tests e2e, 603 tests backend, ruff, mypy, tsc et i18n checks passent tous sans régression.
 
-Max severity: major
-Ship allowed: no
+Max severity: none
+Ship allowed: yes
