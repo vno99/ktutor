@@ -79,6 +79,23 @@ class TestAwardPoints:
         # by checking the service has no `update_ledger` method.
         assert not hasattr(svc, "update_ledger")
 
+    def test_ledger_accumulation_mutation_guard(self, session) -> None:
+        """AC8 mutation guard: accumulation (+=) must be protected; overwrite (=) must break."""
+        from app.services.rewards.ledger import RewardLedgerService
+        session.add(User(pseudo="ali", password_hash=hash_password("pw"), role=UserRole.ELEVE))
+        session.commit()
+        # Pre-seed with existing points so mutation (=) differs from accumulation (+=).
+        session.add(UserPoints(student_pseudo="ali", total_points=10))
+        session.commit()
+        svc = RewardLedgerService(session)
+        # Read before.
+        before_row = session.query(UserPoints).filter_by(student_pseudo="ali").first()
+        before_points = before_row.total_points if before_row else 0
+        svc.award_points("ali", uuid.uuid4(), 7, 1, True)
+        session.refresh(before_row)
+        after_points = before_row.total_points
+        assert after_points == before_points + 7
+
     def test_select_for_update_on_user_points(self, session) -> None:
         from app.services.rewards.ledger import RewardLedgerService
         session.add(User(pseudo="ali", password_hash=hash_password("pw"), role=UserRole.ELEVE))

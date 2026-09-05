@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import logging
+from loguru import logger
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database.models import RewardLedger, UserPoints, User
-
-logger = logging.getLogger(__name__)
-
 
 class RewardLedgerService:
     """Append-only ledger for exercise submission rewards.
@@ -67,12 +64,14 @@ class RewardLedgerService:
         # The update triggers the server-side onupdate.
         self._session.commit()
 
-        logger.info(
-            "rewards",
-            extra={
-                "pseudo": pseudo,
-                "points": points,
-                "attempt": attempt_number,
-                "success": is_success,
-            },
+        logger.bind(
+            request_id="rewards",
+            pseudo=pseudo,
+            route="/rewards/award_points",
+        ).info(
+            "rewards.awarded exercise_id={} points={} attempt={} success={}",
+            str(exercise_id),
+            points,
+            attempt_number,
+            is_success,
         )

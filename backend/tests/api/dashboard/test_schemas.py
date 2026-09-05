@@ -78,7 +78,13 @@ def test_response_serializes_with_global_alias_in_json() -> None:
     payload = resp.model_dump(by_alias=True)
     assert "global" in payload
     assert "global_" not in payload
-    assert payload["global"] == {"score_avg": 0.75, "exercises_count": 3, "last_activity_at": None}
+    assert payload["global"] == {
+        "score_avg": 0.75,
+        "exercises_count": 3,
+        "last_activity_at": None,
+        "total_points": 0,
+        "level": "Apprenti",
+    }
 
 
 def test_score_avg_boundary_values_accepted() -> None:
