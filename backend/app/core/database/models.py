@@ -563,3 +563,68 @@ class Message(Base):
             f"<Message id={self.id} conversation_id={self.conversation_id} "
             f"role={self.role!r}>"
         )
+
+
+class RewardLedger(Base):
+    """Immutable audit log of points awarded per attempt (s20a, AC5 / AC8)."""
+
+    __tablename__ = "reward_ledger"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    student_pseudo: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    exercise_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("exercises.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    points_awarded: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_success: Mapped[bool] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<RewardLedger id={self.id} pseudo={self.student_pseudo!r} "
+            f"points={self.points_awarded} attempt={self.attempt_number}>"
+        )
+
+
+class UserPoints(Base):
+    """Denormalised points summary per student (s20a, AC5). Updated via
+    ``SELECT ... FOR UPDATE`` in the same transaction as the ``INSERT`` into
+    ``RewardLedger`` (AC5 transaction guard)."""
+
+    __tablename__ = "user_points"
+    __table_args__ = ()
+
+    student_pseudo: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    total_points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<UserPoints pseudo={self.student_pseudo!r} "
+            f"total={self.total_points}>"
+        )

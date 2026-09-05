@@ -191,6 +191,8 @@ def test_returns_empty_when_eleve_has_no_attempts(session: Session) -> None:
         "score_avg": 0.0,
         "exercises_count": 0,
         "last_activity_at": None,
+        "total_points": 0,
+        "level": "Apprenti",
     }
 
 
@@ -352,14 +354,14 @@ def test_aggregator_compiles_cast_is_success_as_float(db_engine) -> None:
     finally:
         s.close()
 
-    # The aggregator runs exactly two SELECTs: the per-subject query
-    # and the global query. We assert the CAST appears in BOTH, on
-    # the AVG(is_success) operand.
-    assert len(captured) == 2, (
-        f"Expected 2 SELECTs from the aggregator, got {len(captured)}: {captured}"
+    # The aggregator runs three SELECTs: points query, per-subject query,
+    # and global query. We assert the CAST appears in the two attempt queries.
+    assert len(captured) == 3, (
+        f"Expected 3 SELECTs from the aggregator, got {len(captured)}: {captured}"
     )
 
-    per_subject_sql, global_sql = captured
+    # captured[0] = points SELECT, [1] = per-subject, [2] = global
+    per_subject_sql, global_sql = captured[1], captured[2]
     assert "CAST(attempts.is_success AS FLOAT)" in per_subject_sql, (
         "Per-subject query is missing CAST(is_success AS FLOAT). "
         "Without the cast, PostgreSQL returns integer-division AVG "

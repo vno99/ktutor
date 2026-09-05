@@ -23,7 +23,8 @@ from app.api.dashboard.schemas import (
     GlobalSummary,
     SubjectSummary,
 )
-from app.core.database.models import Attempt, Exercise
+from app.core.database.models import Attempt, Exercise, RewardLedger
+from app.services.rewards.levels import get_level
 
 
 def aggregate_eleve_dashboard(db: Session, pseudo: str) -> EleveDashboardResponse:
@@ -45,6 +46,15 @@ def aggregate_eleve_dashboard(db: Session, pseudo: str) -> EleveDashboardRespons
     # expression turns that test red regardless of the database
     # backend. See ``docs/reviews/s16-dashboard-eleve.md`` Major #2
     # for the original finding and the trap.
+
+    # ---- Points & level (global) ------------------------------------------
+    points_result = (
+        db.query(func.sum(RewardLedger.points_awarded))
+        .filter(RewardLedger.student_pseudo == pseudo)
+        .scalar()
+    )
+    total_points: int = int(points_result or 0)
+    level_label: str = get_level(total_points)
 
     # ---- Per-subject aggregation -------------------------------------------
     per_subject_rows = (
@@ -71,6 +81,8 @@ def aggregate_eleve_dashboard(db: Session, pseudo: str) -> EleveDashboardRespons
                 score_avg=float(row.score_avg) if row.score_avg is not None else 0.0,
                 exercises_count=int(row.exercises_count),
                 last_activity_at=row.last_activity_at,
+                total_points=total_points,
+                level=level_label,
             )
         )
 
@@ -89,6 +101,8 @@ def aggregate_eleve_dashboard(db: Session, pseudo: str) -> EleveDashboardRespons
         score_avg=float(global_row.score_avg) if global_row.score_avg is not None else 0.0,
         exercises_count=int(global_row.exercises_count),
         last_activity_at=global_row.last_activity_at,
+        total_points=total_points,
+        level=level_label,
     )
 
     return EleveDashboardResponse.model_validate(

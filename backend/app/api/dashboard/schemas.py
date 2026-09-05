@@ -50,6 +50,8 @@ class SubjectSummary(BaseModel):
     score_avg: float = Field(..., ge=0.0, le=1.0)
     exercises_count: int = Field(..., ge=0)
     last_activity_at: datetime | None = None
+    total_points: int = 0
+    level: str = "Apprenti"
 
 
 class GlobalSummary(BaseModel):
@@ -58,6 +60,8 @@ class GlobalSummary(BaseModel):
     score_avg: float = Field(..., ge=0.0, le=1.0)
     exercises_count: int = Field(..., ge=0)
     last_activity_at: datetime | None = None
+    total_points: int = 0
+    level: str = "Apprenti"
 
 
 class EleveDashboardResponse(BaseModel):
