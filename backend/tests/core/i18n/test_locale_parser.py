@@ -1,6 +1,4 @@
-import pytest
 from starlette.requests import Request
-from starlette.datastructures import Headers
 
 from app.core.i18n import get_locale
 

@@ -42,8 +42,7 @@ from app.core.auth.passwords import hash_password, verify_password
 from app.core.config import get_settings
 from app.core.database.models import User, UserRole
 from app.core.database.session import get_db
-from app.core.i18n import get_locale, get_message
-
+from app.core.i18n import get_message
 
 
 def _locale_from_header(accept_language: str | None) -> str:
