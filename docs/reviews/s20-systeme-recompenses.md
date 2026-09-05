@@ -92,7 +92,7 @@ Le stub `_stub_grader` dans le router `POST /exercises/submit` utilise `bool(bod
 
 ## Verdict final
 
-Le code respecte la structure du plan, le design-system et le multi-tenant. 3 `major` (observabilité, mutation non mordante, régression dashboard) doivent être corrigés avant livraison. Une fois corrigés, le `Ship allowed` passe à `yes`.
+Le code respecte la structure du plan, le design-system et le multi-tenant. Les 3 `major` (observabilité `loguru`, mutation `+=` non mordante, régression dashboard 3 assertions) et 2 `minor` ont été corrigés dans le commit de fix `886fcae`. Suite complète : 747 passed, 0 failed. `progressive.py` (s08) intact. Design-system non inventé. Multi-tenant préservé (`SELECT ... FOR UPDATE`, `student_pseudo` FK, filtre pseudo dans aggregator).
 
-Max severity: major
-Ship allowed: no
+Max severity: none
+Ship allowed: yes
