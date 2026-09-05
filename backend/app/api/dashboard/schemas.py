@@ -78,9 +78,43 @@ class EleveDashboardResponse(BaseModel):
     global_: GlobalSummary = Field(..., alias="global")
 
 
+class ChildDashboardEntry(BaseModel):
+    """One child of the authenticated parent (s17).
+
+    ``linked_at`` mirrors :attr:`ParentChildLink.created_at` — the
+    timestamp at which the parent-child link was created (s14).
+    The frontend sorts on this field (the router applies
+    ``ORDER BY created_at DESC``) and renders a localised
+    "Linked since …" label.
+
+    ``dashboard`` is a full :class:`EleveDashboardResponse` — the
+    parent's read-only view is a thin wrapper around the
+    student-facing payload. Reusing the schema avoids drift
+    between the two endpoints.
+    """
+
+    pseudo: str
+    linked_at: datetime
+    dashboard: EleveDashboardResponse
+
+
+class ParentDashboardResponse(BaseModel):
+    """Top-level response of ``GET /api/dashboard/parent`` (s17).
+
+    ``children`` may be empty when the parent has no link row at
+    all. The empty list is a 200, **not** a 404 — a parent with
+    no children linked is a valid, expected state (the s14
+    story's "ask the admin" workflow).
+    """
+
+    children: list[ChildDashboardEntry]
+
+
 __all__ = [
+    "ChildDashboardEntry",
     "EleveDashboardResponse",
     "GlobalSummary",
+    "ParentDashboardResponse",
     "SubjectName",
     "SubjectSummary",
 ]

@@ -36,9 +36,10 @@ import { LanguageSwitcher } from './LanguageSwitcher';
  *    gated by a network failure — if the backend is unreachable,
  *    the local store is still cleared so the user is not stuck.
  */
-export function Header() {
+export function Header({ activeNav }: { activeNav?: 'eleve' | 'parent' | null } = {}) {
   const t = useTranslations('header');
   const tAuth = useTranslations('auth.logout');
+  const tNav = useTranslations('dashboard.nav');
 
   const pseudo = useAuthStore((s) => s.pseudo);
   const hydrated = useAuthStore((s) => s.hydrated);
@@ -49,6 +50,8 @@ export function Header() {
   const pathname = usePathname() ?? '';
   const isChatActive = pathname.endsWith('/chat');
   const isUploadActive = pathname.endsWith('/upload');
+  const isDashboardEleveActive = pathname.endsWith('/dashboard/eleve');
+  const isDashboardParentActive = pathname.includes('/dashboard/parent');
 
   useEffect(() => {
     if (!hydrated) hydrate();
@@ -112,6 +115,28 @@ export function Header() {
           >
             {t('navUpload')}
           </Link>
+          {activeNav === 'eleve' ? (
+            <Link
+              href="/dashboard/eleve"
+              className={`hover:text-text-primary transition-colors ${
+                isDashboardEleveActive ? 'text-text-primary font-medium' : ''
+              }`}
+              aria-current={isDashboardEleveActive ? 'page' : undefined}
+            >
+              {tNav('eleve')}
+            </Link>
+          ) : null}
+          {activeNav === 'parent' ? (
+            <Link
+              href="/dashboard/parent"
+              className={`hover:text-text-primary transition-colors ${
+                isDashboardParentActive ? 'text-text-primary font-medium' : ''
+              }`}
+              aria-current={isDashboardParentActive ? 'page' : undefined}
+            >
+              {tNav('parent')}
+            </Link>
+          ) : null}
         </nav>
 
         <div className="flex-1" />

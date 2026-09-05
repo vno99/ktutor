@@ -8,6 +8,7 @@ import {
   BookOpen,
   CheckCircle2,
   Clock,
+  Eye,
   Loader2,
   RefreshCw,
   TrendingUp,
@@ -148,9 +149,13 @@ function ChartTooltip(props: { active?: boolean; payload?: Array<{ payload: { na
   );
 }
 
-export function DashboardClient() {
+export function DashboardClient({
+  readOnly = false,
+  pseudo,
+}: { readOnly?: boolean; pseudo?: string } = {}) {
   const t = useTranslations('dashboard.eleve');
   const tChat = useTranslations('chat');
+  const tParent = useTranslations('dashboard.parent');
   const locale = useLocale();
 
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -160,6 +165,16 @@ export function DashboardClient() {
   const [error, setError] = useState<ErrorCode | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
+
+  // The apiClient URL gains a `?pseudo=<pseudo>` when a child pseudo
+  // is provided (s17 — parent child-detail view). When omitted, the
+  // JWT's own pseudo is used (s16 retrocompatible). The server-side
+  // helper `assert_parent_linked_to_child_or_403` enforces the
+  // parent↔child link for parent callers; for eleve callers the
+  // s15 self-match branch passes; for admins, the bypass branch
+  // passes. The `?pseudo=` only changes the URL — the response shape
+  // and the rest of the component are identical.
+  const apiParams = pseudo ? { pseudo } : undefined;
 
   // fetchDashboard is the user-triggered fetch path (Refresh button,
   // Retry button in the error state). It runs in an event handler,
@@ -180,6 +195,7 @@ export function DashboardClient() {
     try {
       const resp = await apiClient.get<EleveDashboardResponse>(
         '/api/dashboard/eleve',
+        { params: apiParams },
       );
       setData(resp.data);
     } catch (err) {
@@ -200,7 +216,7 @@ export function DashboardClient() {
     // react-hooks/set-state-in-effect rule does not track (it
     // analyses the synchronous call chain only).
     apiClient
-      .get<EleveDashboardResponse>('/api/dashboard/eleve')
+      .get<EleveDashboardResponse>('/api/dashboard/eleve', { params: apiParams })
       .then((resp) => {
         setData(resp.data);
       })
@@ -211,7 +227,7 @@ export function DashboardClient() {
         setIsRefreshing(false);
         setHasFetched(true);
       });
-  }, [hydrated, accessToken]);
+  }, [hydrated, accessToken, apiParams]);
 
   const globalRateTone = data ? rateTone(data.global.score_avg) : 'warning';
   const subjectCards = useMemo(() => {
@@ -244,6 +260,16 @@ export function DashboardClient() {
         </p>
       </header>
 
+      {readOnly ? (
+        <div
+          className="inline-flex items-center gap-2 self-start rounded-full bg-primary/10 text-primary-strong px-3 py-1.5 text-xs font-medium"
+          aria-label={tParent('readOnlyAria')}
+        >
+          <Eye size={16} aria-hidden="true" />
+          <span>{tParent('readOnly')}</span>
+        </div>
+      ) : null}
+
       {isLoading ? (
         <Card
           role="status"
@@ -262,7 +288,7 @@ export function DashboardClient() {
           }}
         />
       ) : isEmpty ? (
-        <EmptyState />
+        <EmptyState readOnly={readOnly} />
       ) : data ? (
         <SuccessState
           data={data}
@@ -270,6 +296,7 @@ export function DashboardClient() {
           globalRateTone={globalRateTone}
           subjectCards={subjectCards}
           chartData={chartData}
+          readOnly={readOnly}
         />
       ) : null}
 
@@ -384,7 +411,7 @@ function ErrorState({ code, onRetry }: { code: ErrorCode; onRetry: () => void })
   );
 }
 
-function EmptyState() {
+function EmptyState({ readOnly = false }: { readOnly?: boolean } = {}) {
   const t = useTranslations('dashboard.eleve');
   const locale = useLocale();
   return (
@@ -392,12 +419,14 @@ function EmptyState() {
       <BookOpen size={32} className="text-text-tertiary" aria-hidden="true" />
       <p className="text-base text-text-primary">{t('empty')}</p>
       <p className="text-sm text-text-secondary">{t('emptyCta')}</p>
-      <a
-        href={`/${locale}/chat`}
-        className="mt-2 inline-flex items-center justify-center h-11 px-4 text-base font-medium rounded-sm bg-primary text-white hover:bg-primary-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-      >
-        {t('emptyButton')}
-      </a>
+      {!readOnly ? (
+        <a
+          href={`/${locale}/chat`}
+          className="mt-2 inline-flex items-center justify-center h-11 px-4 text-base font-medium rounded-sm bg-primary text-white hover:bg-primary-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        >
+          {t('emptyButton')}
+        </a>
+      ) : null}
     </Card>
   );
 }
@@ -408,10 +437,11 @@ function SuccessState(props: {
   globalRateTone: 'success' | 'warning' | 'error';
   subjectCards: SubjectSummary[];
   chartData: Array<{ name: string; taux: number }>;
+  readOnly?: boolean;
 }) {
   const t = useTranslations('dashboard.eleve');
   const tChat = useTranslations('chat');
-  const { data, locale, globalRateTone, subjectCards, chartData } = props;
+  const { data, locale, globalRateTone, subjectCards, chartData, readOnly = false } = props;
   const globalPercent = Math.round(data.global.score_avg * 100);
   const globalAttempts = data.global.exercises_count;
   const lastActivityLabel = data.global.last_activity_at
@@ -590,16 +620,18 @@ function SuccessState(props: {
                   </span>
                 ) : null}
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled
-                aria-disabled="true"
-                tabIndex={-1}
-                className="self-start"
-              >
-                {t('seeDetails')}
-              </Button>
+              {!readOnly ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled
+                  aria-disabled="true"
+                  tabIndex={-1}
+                  className="self-start"
+                >
+                  {t('seeDetails')}
+                </Button>
+              ) : null}
             </Card>
           );
         })}

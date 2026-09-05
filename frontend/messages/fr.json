@@ -118,6 +118,10 @@
     "layout": {
       "title": "Mon tableau de bord"
     },
+    "nav": {
+      "eleve": "Tableau de bord",
+      "parent": "Mes enfants"
+    },
     "eleve": {
       "title": "Mon tableau de bord",
       "subtitle": "Ta progression, par matière.",
@@ -143,6 +147,28 @@
       "retry": "Réessayer",
       "reconnect": "Se reconnecter",
       "loading": "Chargement de ton tableau de bord…"
+    },
+    "parent": {
+      "listTitle": "Mes enfants",
+      "listSubtitle": "Suis la progression de chacun de tes enfants.",
+      "readOnly": "Vue parent — lecture seule",
+      "readOnlyAria": "Mode lecture seule : tu peux consulter les données de tes enfants mais pas les modifier.",
+      "linkedSince": "Lié depuis le {date}",
+      "successRate": "Taux de réussite",
+      "noActivity": "Pas encore d'activité",
+      "refreshList": "Rafraîchir la liste",
+      "refreshingList": "Rafraîchissement…",
+      "emptyTitle": "Aucun enfant lié à ton compte.",
+      "emptySubtitle": "Demande à un administrateur de lier un enfant à ton compte pour suivre sa progression.",
+      "error403Role": "Accès refusé. Cette page est réservée aux parents.",
+      "backHome": "Retour à l'accueil",
+      "backToList": "Retour à la liste",
+      "detailTitle": "Progression de {child}",
+      "detailReadOnly": "Vue parent — lecture seule · {child}",
+      "cardAria": "Accéder au tableau de bord de {child}",
+      "detail403": "Accès refusé. Cet enfant n'est pas lié à ton compte.",
+      "loadingList": "Chargement de tes enfants…",
+      "loadingDetail": "Chargement du tableau de bord de {child}…"
     }
   }
 }
