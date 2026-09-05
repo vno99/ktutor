@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from loguru import logger
 from typing import Any
 
-from sqlalchemy import select
+from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.core.database.models import RewardLedger, UserPoints, User
+from app.core.database.models import RewardLedger, User, UserPoints
+
 
 class RewardLedgerService:
     """Append-only ledger for exercise submission rewards.

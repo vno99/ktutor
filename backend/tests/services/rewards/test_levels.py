@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.rewards.levels import get_level, LEVEL_APPRENTI, LEVEL_CONFIRME, LEVEL_EXPERT
+from app.services.rewards.levels import LEVEL_APPRENTI, LEVEL_CONFIRME, LEVEL_EXPERT, get_level
 
 
 class TestLevels:

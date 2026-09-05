@@ -16,8 +16,8 @@ const LEVEL_MAP: Record<string, { token: string; labelKey: string }> = {
 export function LevelBadge({ level, totalPoints, className = '' }: LevelBadgeProps) {
   const t = useTranslations('rewards');
   const mapping = LEVEL_MAP[level] || LEVEL_MAP['Apprenti'];
-  const token = mapping.token;
-  const labelKey = mapping.labelKey;
+  const token = mapping!.token;
+  const labelKey = mapping!.labelKey;
 
   // Design tokens: primary (#3D5AFE), success (#16A34A), accent-warm (#FF6B4A)
   const colorClasses: Record<string, { border: string; text: string; bg: string; iconText: string }> = {
@@ -41,7 +41,7 @@ export function LevelBadge({ level, totalPoints, className = '' }: LevelBadgePro
     },
   };
 
-  const colors = colorClasses[token];
+  const colors = colorClasses[token]!;
 
   return (
     <div

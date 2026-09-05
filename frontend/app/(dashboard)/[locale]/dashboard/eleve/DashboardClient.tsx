@@ -58,12 +58,16 @@ interface SubjectSummary {
   score_avg: number;
   exercises_count: number;
   last_activity_at: string | null;
+  total_points: number;
+  level: string;
 }
 
 interface GlobalSummary {
   score_avg: number;
   exercises_count: number;
   last_activity_at: string | null;
+  total_points: number;
+  level: string;
 }
 
 interface EleveDashboardResponse {
