@@ -40,6 +40,16 @@ class OcrResult(BaseModel):
     ``ok=False`` means the OCR service responded but the result is not
     trustworthy; the upload pipeline should treat this as a refusal (and
     surface ``manual_review_needed`` to the user).
+
+    s18 — the optional ``raw`` field carries the full parsed JSON
+    envelope returned by the vision LLM. The default ``MultimodalOcr``
+    prompt elicits a JSON with ``transcription``/``confidence``/``type``/
+    ``has_math`` keys; a custom prompt (s18 score-extraction) may add
+    ``score``/``max_score``/``annotations``/``teacher_comments``/``ocr_text``
+    fields. ``raw`` exposes the entire envelope to callers that need
+    the extra fields without forcing them to re-parse the response.
+    Backwards compatible: ``raw`` defaults to ``None`` so existing
+    callers (s10) see no change.
     """
 
     ok: bool
@@ -48,6 +58,7 @@ class OcrResult(BaseModel):
     reason: str | None = None
     ocr_type: str = ""
     has_math: bool = False
+    raw: dict[str, Any] | None = None
 
 
 class OcrError(RuntimeError):
@@ -60,6 +71,13 @@ class MultimodalOcr:
     The client is intentionally simple: we never cache responses, never
     batch, never stream. The upload pipeline calls ``transcribe_image`` once
     per uploaded image.
+
+    s18 — ``transcribe_image`` accepts an optional ``prompt`` argument so
+    callers (e.g. :class:`app.services.ocr.evaluation_extractor
+    .EvaluationExtractor`) can ask the vision LLM for a structured
+    payload (score, max_score, annotations, etc.) instead of the
+    default transcription prompt. The default behaviour is unchanged
+    (the legacy transcription prompt is used when ``prompt=None``).
     """
 
     def __init__(
@@ -72,15 +90,25 @@ class MultimodalOcr:
         self._timeout = timeout
         self._transport = transport
 
-    def transcribe_image(self, image_path: str) -> OcrResult:
-        """Transcribe a single image (or PDF) into text + confidence."""
+    def transcribe_image(
+        self, image_path: str, prompt: str | None = None
+    ) -> OcrResult:
+        """Transcribe a single image (or PDF) into text + confidence.
+
+        ``prompt`` is the instruction sent to the vision LLM. When
+        ``None``, the default transcription prompt is used (s10
+        contract). When provided, the caller's prompt is sent as-is
+        and the full LLM JSON envelope is preserved in
+        :attr:`OcrResult.raw` so structured fields (e.g. ``score``)
+        are accessible without a second HTTP call.
+        """
         path = Path(image_path)
         if not path.exists():
             raise FileNotFoundError(f"Fichier OCR introuvable: {image_path}")
 
         data_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-        prompt = _build_prompt()
-        payload = {"image_b64": data_b64, "prompt": prompt}
+        chosen_prompt = prompt if prompt is not None else _build_prompt()
+        payload = {"image_b64": data_b64, "prompt": chosen_prompt}
 
         last_error: Exception | None = None
         for attempt in range(2):
@@ -91,7 +119,7 @@ class MultimodalOcr:
                 payload["prompt"] = _build_strict_prompt()
                 last_error = OcrError("Réponse OCR non-JSON")
                 continue
-            return _result_from_parsed(parsed)
+            return _result_from_parsed(parsed, raw=parsed)
         # Both attempts failed to produce JSON.
         raise OcrError(f"OCR n'a pas renvoyé de JSON exploitable: {last_error}")
 
@@ -145,15 +173,24 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
         return None
 
 
-def _result_from_parsed(parsed: dict[str, Any]) -> OcrResult:
-    """Build an :class:`OcrResult` from a parsed JSON payload, applying the confidence gate."""
+def _result_from_parsed(
+    parsed: dict[str, Any], raw: dict[str, Any] | None = None
+) -> OcrResult:
+    """Build an :class:`OcrResult` from a parsed JSON payload, applying the confidence gate.
+
+    ``raw`` is the full JSON envelope preserved for callers that need
+    structured fields beyond ``transcription``/``confidence``. s10
+    callers pass ``raw=None`` (the default) to keep the legacy
+    contract; s18 callers pass the parsed dict to surface the
+    score-extraction fields.
+    """
     transcription = str(parsed.get("transcription", "")).strip()
     confidence = float(parsed.get("confidence", 0.0) or 0.0)
     ocr_type = str(parsed.get("type", ""))
     has_math = bool(parsed.get("has_math", False))
 
     if not transcription:
-        return OcrResult(ok=False, reason="empty_transcription")
+        return OcrResult(ok=False, reason="empty_transcription", raw=raw)
     if confidence < LOW_CONFIDENCE_THRESHOLD:
         return OcrResult(
             ok=False,
@@ -162,6 +199,7 @@ def _result_from_parsed(parsed: dict[str, Any]) -> OcrResult:
             reason="low_confidence",
             ocr_type=ocr_type,
             has_math=has_math,
+            raw=raw,
         )
     return OcrResult(
         ok=True,
@@ -169,4 +207,5 @@ def _result_from_parsed(parsed: dict[str, Any]) -> OcrResult:
         confidence=confidence,
         ocr_type=ocr_type,
         has_math=has_math,
+        raw=raw,
     )

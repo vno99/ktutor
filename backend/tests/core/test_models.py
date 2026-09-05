@@ -16,6 +16,8 @@ from app.core.database.models import (
     Base,
     Document,
     DocumentStatus,
+    Evaluation,
+    EvaluationStatus,
     Exercise,
     ExerciseType,
     ParentChildLink,
@@ -578,3 +580,93 @@ class TestParentChildLinkModel:
         )
         assert {l.child_pseudo for l in pat_links} == {"ali", "bob"}
         assert {l.child_pseudo for l in sam_links} == {"ali"}
+
+
+class TestEvaluationModel:
+    """SQLAlchemy ``Evaluation`` model (s18).
+
+    Locks the persistence shape of the evaluation copy table:
+
+    * UUID PK is auto-generated and survives a commit/refresh round-trip;
+    * the minimum required fields (student_pseudo, subject, s3_key,
+      filename, status) are enough to insert a row — every extracted
+      field is nullable and will be filled by the service layer;
+    * the :class:`EvaluationStatus` enum carries exactly the two
+      values used by s18 and s18b (locked here so adding a third
+      value is a deliberate decision, not an accident).
+    """
+
+    def test_evaluation_persists_with_minimum_fields(self, session) -> None:
+        """Insert + read round-trip with only the required columns populated."""
+        # The student_pseudo FK references ``users.pseudo`` so the
+        # student must exist before the row can be inserted.
+        session.add(
+            User(pseudo="ali", password_hash=hash_password("passwordone1"))
+        )
+        session.commit()
+
+        ev = Evaluation(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            s3_key="students/ali/abc",
+            filename="copie.png",
+            status=EvaluationStatus.SCORED,
+            score=12.0,
+            max_score=20.0,
+        )
+        session.add(ev)
+        session.commit()
+        session.refresh(ev)
+
+        assert isinstance(ev.id, uuid.UUID)
+        assert ev.student_pseudo == "ali"
+        assert ev.subject is Subject.MATHS
+        assert ev.status is EvaluationStatus.SCORED
+        assert ev.score == 12.0
+        assert ev.max_score == 20.0
+        # Optional columns default to None on a minimum-field insert.
+        assert ev.annotations is None
+        assert ev.teacher_comments is None
+        assert ev.ocr_text is None
+        assert ev.ocr_confidence is None
+        assert ev.error_reason is None
+        assert isinstance(ev.created_at, datetime)
+
+    def test_evaluation_status_enum_has_two_values(self) -> None:
+        """s18b reuses this enum — lock the surface here so a third
+        value cannot sneak in by accident (the manual-review workflow
+        is the only extension point)."""
+        assert {status.value for status in EvaluationStatus} == {
+            "scored",
+            "manual_review_needed",
+        }
+
+    def test_evaluation_persists_manual_review_when_score_missing(
+        self, session
+    ) -> None:
+        """An evaluation copy without a score is still persisted
+        (the row carries ``status=MANUAL_REVIEW_NEEDED`` and
+        ``score=None``). A regression that treated "no score" as
+        "don't persist" would break the manual review workflow in
+        s18b."""
+        session.add(
+            User(pseudo="ali", password_hash=hash_password("passwordone1"))
+        )
+        session.commit()
+
+        ev = Evaluation(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            s3_key="students/ali/xyz",
+            filename="copie.png",
+            status=EvaluationStatus.MANUAL_REVIEW_NEEDED,
+            score=None,
+            max_score=None,
+        )
+        session.add(ev)
+        session.commit()
+        session.refresh(ev)
+
+        assert ev.status is EvaluationStatus.MANUAL_REVIEW_NEEDED
+        assert ev.score is None
+        assert ev.max_score is None

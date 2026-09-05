@@ -40,12 +40,17 @@ class _OcrLike(Protocol):
 
 class OcrResult(BaseModel):  # forward declaration; concrete class lives in ocr.py
     """Mirrors the structure produced by ``MultimodalOcr``; redefined here to
-    avoid a circular import (ingestion is consumed by ocr.py's test path)."""
+    avoid a circular import (ingestion is consumed by ocr.py's test path).
+
+    s18 — the optional ``raw`` field carries the full LLM JSON envelope
+    (carries the new fields the score-extraction prompt elicits).
+    """
 
     ok: bool
     transcription: str = ""
     confidence: float = 0.0
     reason: str | None = None
+    raw: dict | None = None
 
 
 class DocumentIngestor:
