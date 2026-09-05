@@ -30,6 +30,21 @@ class Subject(str, enum.Enum):
     FRANCAIS = "francais"
 
 
+class EvaluationStatus(str, enum.Enum):
+    """Lifecycle status of an uploaded evaluation copy.
+
+    An evaluation copy is **always** persisted (even if the score cannot
+    be extracted); ``SCORED`` means the vision LLM produced a usable
+    score, ``MANUAL_REVIEW_NEEDED`` means the score is missing or
+    unreadable and a human must enter it (s18b). The two-state design
+    (vs reusing :class:`DocumentStatus` which has an ``ERROR`` value)
+    is recorded in ADR 013.
+    """
+
+    SCORED = "scored"
+    MANUAL_REVIEW_NEEDED = "manual_review_needed"
+
+
 class ExerciseType(str, enum.Enum):
     """Discriminator for the ``exercises`` table.
 
@@ -204,6 +219,74 @@ class Attempt(Base):
             f"<Attempt id={self.id} pseudo={self.student_pseudo!r} "
             f"exercise_id={self.exercise_id} attempt_number={self.attempt_number} "
             f"is_success={self.is_success}>"
+        )
+
+
+class Evaluation(Base):
+    """A photo of a corrected exam copy uploaded by a student (s18).
+
+    The model is the persistence target of the
+    ``POST /api/evaluations/upload`` endpoint. The row is **always**
+    written (even when the score cannot be extracted) so the student
+    can be prompted to enter the score manually (s18b). The
+    multi-tenancy contract is enforced at the DB level via the
+    ``student_pseudo`` FK (``ondelete="CASCADE"``).
+
+    Columns:
+
+    * ``ocr_text`` keeps the full OCR transcript (s18b will
+      re-process the same image without re-running the OCR).
+    * ``ocr_confidence`` carries the multimodal LLM's confidence
+      (None when the OCR returned ``ok=False``).
+    * ``error_reason`` records why the extraction could not produce a
+      score (low confidence, OCR unreachable, JSON parse failure).
+    """
+
+    __tablename__ = "evaluations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    student_pseudo: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    subject: Mapped[Subject] = mapped_column(
+        Enum(Subject, name="subject_enum", native_enum=False, length=32),
+        nullable=False,
+    )
+    s3_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    filename: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[EvaluationStatus] = mapped_column(
+        Enum(
+            EvaluationStatus,
+            name="evaluation_status_enum",
+            native_enum=False,
+            length=32,
+        ),
+        nullable=False,
+    )
+    score: Mapped[float | None] = mapped_column(nullable=True)
+    max_score: Mapped[float | None] = mapped_column(nullable=True)
+    annotations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    teacher_comments: Mapped[str | None] = mapped_column(String(8192), nullable=True)
+    ocr_text: Mapped[str | None] = mapped_column(String(8192), nullable=True)
+    ocr_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    error_reason: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<Evaluation id={self.id} pseudo={self.student_pseudo!r} "
+            f"subject={self.subject.value} status={self.status.value} "
+            f"score={self.score}>"
         )
 
 

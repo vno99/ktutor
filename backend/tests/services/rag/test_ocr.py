@@ -150,3 +150,34 @@ class TestPayload:
         sent = json.loads(transport.last_request.content)
         assert sent["image_b64"] == base64.b64encode(small_image.read_bytes()).decode("ascii")
         assert "JSON" in sent["prompt"]
+
+
+class TestCustomPrompt:
+    """s18 — the optional ``prompt`` parameter is a backwards-compatible
+    extension that lets :class:`app.services.ocr.evaluation_extractor
+    .EvaluationExtractor` send a score-extraction prompt. The default
+    behaviour (no ``prompt`` argument) must remain identical to the
+    s10 contract — these tests lock that regression net.
+    """
+
+    def test_custom_prompt_is_sent_when_provided(self, small_image: Path) -> None:
+        body = json.dumps(_payload("x", 0.9))
+        transport = _StaticTransport(200, body)
+        custom = "Renvoie UNIQUEMENT un JSON avec les clés score et max_score"
+        _make_ocr(transport).transcribe_image(str(small_image), prompt=custom)
+        assert transport.last_request is not None
+        sent = json.loads(transport.last_request.content)
+        assert sent["prompt"] == custom
+
+    def test_no_prompt_means_default_behaviour_is_kept(
+        self, small_image: Path
+    ) -> None:
+        """The default-prompt path must still produce a valid response
+        (the s10 happy path). A regression that required ``prompt`` as
+        a positional argument would break this test."""
+        body = json.dumps(_payload("x", 0.9))
+        result = _make_ocr(_StaticTransport(200, body)).transcribe_image(
+            str(small_image)
+        )
+        assert result.ok is True
+        assert result.transcription == "x"
