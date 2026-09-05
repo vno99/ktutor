@@ -19,6 +19,7 @@
     "pseudoHelp": "Choisis un pseudo (3 à 32 caractères, lettres, chiffres, underscore).",
     "navChat": "Chat",
     "navUpload": "Upload",
+    "navHistory": "Historique",
     "avatarAlt": "Avatar de {pseudo}"
   },
   "chat": {
@@ -170,5 +171,39 @@
       "loadingList": "Chargement de tes enfants…",
       "loadingDetail": "Chargement du tableau de bord de {child}…"
     }
+  },
+  "history": {
+    "title": "Mes conversations",
+    "detailTitle": "Conversation",
+    "loading": "Chargement de l'historique…",
+    "empty": "Tu n'as pas encore posé de question.",
+    "emptyCta": "Démarre une conversation pour la retrouver ici.",
+    "emptyButton": "Démarrer une conversation",
+    "filterAllSubjects": "Toutes les matières",
+    "filterMaths": "Mathématiques",
+    "filterFrancais": "Français",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "paginationLabel": "Pagination",
+    "previousAria": "Page précédente",
+    "nextAria": "Page suivante",
+    "metaCount": "{count, plural, =0 {aucun message} one {1 message} other {{count} messages}}",
+    "openConversation": "Ouvrir la conversation",
+    "errorTitle": "Impossible de charger l'historique",
+    "errorBody": "Une erreur s'est produite. Réessaie dans quelques instants.",
+    "errorNetwork": "Erreur réseau. Vérifie ta connexion.",
+    "error401": "Session expirée. Reconnecte-toi.",
+    "error403": "Accès refusé.",
+    "error404": "Conversation introuvable.",
+    "error500": "Erreur serveur. Réessaie dans quelques minutes.",
+    "retry": "Réessayer",
+    "reconnect": "Se reconnecter",
+    "notFound": "Cette conversation n'existe pas ou ne t'appartient pas.",
+    "back": "Retour à l'historique",
+    "roleYou": "Toi",
+    "roleAssistant": "ktutor · {subject}",
+    "sourcesLabel": "Sources :",
+    "subjectMaths": "Mathématiques",
+    "subjectFrancais": "Français"
   }
 }

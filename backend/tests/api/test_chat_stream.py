@@ -132,7 +132,11 @@ def jwt_client(
 ) -> Iterator[TestClient]:
     """A TestClient bound to an isolated in-memory SQLite + the stub
     supervisor. The ``get_db`` dependency is overridden so each
-    request sees the seeded users. Mirrors the pattern from
+    request sees the seeded users. The session factory
+    used by the stream's persistence block (T5) is also
+    overridden so the writes land in the test's in-memory
+    engine (not the global factory's, which is a different
+    in-memory SQLite). Mirrors the pattern from
     ``test_users_create.py::client``."""
 
     def _override_get_db() -> Iterator:
@@ -142,12 +146,24 @@ def jwt_client(
         finally:
             s.close()
 
+    def _override_session_factory():
+        return session_factory
+
     app.dependency_overrides[get_db] = _override_get_db
+    # T5: the stream's persistence block uses a
+    # dependency-injected session factory. Override it so
+    # the writes hit the test's in-memory engine.
+    from app.api.chat.router import _build_session_factory_dep
+
+    app.dependency_overrides[_build_session_factory_dep] = (
+        _override_session_factory
+    )
     try:
         with TestClient(app) as c:
             yield c
     finally:
         app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(_build_session_factory_dep, None)
 
 
 @pytest.fixture()
@@ -705,3 +721,188 @@ class TestChatStreamCrossTenant:
             "done": True,
             "sources": [],
         }
+
+
+# ---------------------------------------------------------------------------
+# s19 — stream-side persistence (T5)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamPersistence:
+    """The stream's persistence block (T5, ADR 015 § Decision 4).
+
+    The block lives in a ``try/finally`` AFTER the SSE loop
+    closes, so the existing s09 wire format is unchanged.
+    Persistence is gated by the ``chat_persist_history``
+    setting (default ``True``); the s09 happy-path tests above
+    do not exercise it because the JWT + supervisor override
+    does not seed ``Conversation`` rows.
+    """
+
+    def test_stream_persists_user_and_assistant_messages(
+        self,
+        jwt_client: TestClient,
+        seeded_eleve_alice: User,
+        session_factory,
+        maths_stub,
+    ) -> None:
+        """Happy path: after a successful stream, the DB has
+        one ``Conversation`` row + 2 ``Message`` rows, with
+        ``first_question == body.question`` and
+        ``message_count == 2``.
+        """
+        from app.services.agents.types import SourceCitation
+
+        maths_stub.sources = [SourceCitation(filename="cours.pdf", chunk_index=0)]
+        response = jwt_client.post(
+            "/api/chat/stream",
+            json={"subject": "maths", "question": "2+2 ?"},
+            headers=_bearer(seeded_eleve_alice),
+        )
+        assert response.status_code == 200
+        # Drain the stream to make sure the finally block runs.
+        _ = response.text
+
+        from app.core.database.models import Conversation, Message, Subject
+
+        with session_factory() as db:
+            convs = (
+                db.query(Conversation)
+                .filter(Conversation.student_pseudo == "alice")
+                .all()
+            )
+            assert len(convs) == 1
+            conv = convs[0]
+            assert conv.subject is Subject.MATHS
+            assert conv.first_question == "2+2 ?"
+            assert conv.message_count == 2
+
+            msgs = (
+                db.query(Message)
+                .filter(Message.conversation_id == conv.id)
+                .order_by(Message.created_at.asc())
+                .all()
+            )
+            assert len(msgs) == 2
+            assert msgs[0].role == "user"
+            assert msgs[0].content == "2+2 ?"
+            assert msgs[0].sources is None
+            assert msgs[1].role == "assistant"
+            # The assistant content is the concatenation of the
+            # stub's tokens ("Hel" + "lo " + "world" = "Hello world").
+            assert msgs[1].content == "Hello world"
+            assert msgs[1].sources == [
+                {"filename": "cours.pdf", "chunk_index": 0}
+            ]
+
+    def test_stream_persists_reuses_existing_conversation(
+        self,
+        jwt_client: TestClient,
+        seeded_eleve_alice: User,
+        session_factory,
+    ) -> None:
+        """Two streams for the same (student, subject) hit the
+        same ``Conversation`` row; the second call's
+        ``+2`` bumps ``message_count`` to 4.
+        """
+        for _ in range(2):
+            response = jwt_client.post(
+                "/api/chat/stream",
+                json={"subject": "maths", "question": "2+2 ?"},
+                headers=_bearer(seeded_eleve_alice),
+            )
+            assert response.status_code == 200
+            _ = response.text
+
+        from app.core.database.models import Conversation, Message
+
+        with session_factory() as db:
+            convs = (
+                db.query(Conversation)
+                .filter(Conversation.student_pseudo == "alice")
+                .all()
+            )
+            assert len(convs) == 1
+            assert convs[0].message_count == 4
+            msgs = (
+                db.query(Message)
+                .filter(Message.conversation_id == convs[0].id)
+                .all()
+            )
+            assert len(msgs) == 4
+
+    def test_stream_persists_with_persist_flag_off_does_not_write(
+        self,
+        jwt_client: TestClient,
+        seeded_eleve_alice: User,
+        session_factory,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When ``chat_persist_history=False``, the stream
+        is a no-op on the DB. This is the gate that keeps
+        the s09 test suite (3-token stub) free of DB
+        writes — the existing s09 tests stay green with
+        zero schema side-effects.
+        """
+        # Patch the settings singleton's chat_persist_history
+        # to False. The router reads ``get_settings()`` per
+        # request, so the new value is honoured for the next
+        # call. The monkeypatch fixture restores the
+        # previous value automatically.
+        from app.core import config as config_module
+        from app.core.config import Settings
+
+        current = config_module._settings
+        if current is None:
+            current = Settings()
+        config_module._settings = current.model_copy(
+            update={"chat_persist_history": False}
+        )
+        try:
+            response = jwt_client.post(
+                "/api/chat/stream",
+                json={"subject": "maths", "question": "2+2 ?"},
+                headers=_bearer(seeded_eleve_alice),
+            )
+            assert response.status_code == 200
+            _ = response.text
+        finally:
+            # Restore — the autouse ``_point_settings`` will
+            # rebuild a fresh instance for the next test.
+            config_module._settings = None
+
+        from app.core.database.models import Conversation, Message
+
+        with session_factory() as db:
+            assert db.query(Conversation).count() == 0
+            assert db.query(Message).count() == 0
+
+    def test_stream_persists_error_event_does_not_write(
+        self,
+        jwt_client: TestClient,
+        seeded_eleve_alice: User,
+        session_factory,
+        maths_stub,
+    ) -> None:
+        """The bite on ADR 015 § Decision 4: a ``ValueError``
+        mid-stream (the stub raises) must leave NO
+        ``Conversation`` and NO ``Message`` row. The user
+        never saw a response — the conversation was never
+        started, so no half-written row is persisted.
+        """
+        maths_stub.behaviour = "raise_unknown"
+        response = jwt_client.post(
+            "/api/chat/stream",
+            json={"subject": "maths", "question": "2+2 ?"},
+            headers=_bearer(seeded_eleve_alice),
+        )
+        assert response.status_code == 200
+        # The error event is in the body; the stream is short.
+        events = _events_from_response(response)
+        assert any(e.get("code") == "unknown" for e in events)
+
+        from app.core.database.models import Conversation, Message
+
+        with session_factory() as db:
+            assert db.query(Conversation).count() == 0
+            assert db.query(Message).count() == 0
