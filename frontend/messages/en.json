@@ -172,6 +172,16 @@
       "loadingDetail": "Loading {child}'s dashboard…"
     }
   },
+  "rewards": {
+    "section": "Rewards",
+    "points": "points",
+    "badgeAria": "Level {level} — {points} points",
+    "level": {
+      "apprentice": "Apprentice",
+      "confirmed": "Confirmed",
+      "expert": "Expert"
+    }
+  },
   "history": {
     "title": "My conversations",
     "detailTitle": "Conversation",

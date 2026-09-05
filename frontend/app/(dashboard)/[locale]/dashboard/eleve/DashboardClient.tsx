@@ -26,6 +26,7 @@ import {
 import { AxiosError } from 'axios';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
+import { LevelBadge } from '@/components/LevelBadge';
 import { apiClient } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/authStore';
 
@@ -290,14 +291,20 @@ export function DashboardClient({
       ) : isEmpty ? (
         <EmptyState readOnly={readOnly} />
       ) : data ? (
-        <SuccessState
-          data={data}
-          locale={locale}
-          globalRateTone={globalRateTone}
-          subjectCards={subjectCards}
-          chartData={chartData}
-          readOnly={readOnly}
-        />
+        <>
+          <LevelBadge
+            level={data.global.level}
+            totalPoints={data.global.total_points}
+          />
+          <SuccessState
+            data={data}
+            locale={locale}
+            globalRateTone={globalRateTone}
+            subjectCards={subjectCards}
+            chartData={chartData}
+            readOnly={readOnly}
+          />
+        </>
       ) : null}
 
       {!isLoading && !error ? (

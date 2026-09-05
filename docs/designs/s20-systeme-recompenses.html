@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Level Badge — s20 mockup (référence, pas code)</title>
+<style>
+  :root {
+    --color-primary: #3D5AFE;
+    --color-success: #16A34A;
+    --color-accent-warm: #FF6B4A;
+    --color-canvas: #FAFBFC;
+    --color-surface: #FFFFFF;
+    --color-surface-subtle: #F4F6FA;
+    --color-border: #E2E6EE;
+    --color-text-primary: #0D0F14;
+    --color-text-secondary: #5B6472;
+    --font-body: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  }
+  body { background: var(--color-canvas); font-family: var(--font-body); color: var(--color-text-primary); padding: 2rem; line-height: 1.4; }
+  h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+  p.subtitle { color: var(--color-text-secondary); font-size: 0.875rem; margin-bottom: 1.5rem; }
+  .mockup { max-width: 720px; margin: 0 auto; }
+  .badge-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 0.75rem; padding: 1rem; display: flex; align-items: center; gap: 0.75rem; box-shadow: 0 1px 3px rgba(13,15,20,0.06); }
+  .badge { display: inline-flex; align-items: center; gap: 0.5rem; border-radius: 9999px; padding: 0.35rem 0.75rem; font-weight: 700; font-size: 0.875rem; border: 2px solid; }
+  .badge-apprentice { border-color: var(--color-primary); color: var(--color-primary); background: rgba(61,90,254,0.08); }
+  .badge-confirmed { border-color: var(--color-success); color: var(--color-success); background: rgba(22,163,74,0.08); }
+  .badge-expert   { border-color: var(--color-accent-warm); color: var(--color-accent-warm); background: rgba(255,107,74,0.08); }
+  .icon { width: 1.5rem; height: 1.5rem; flex-shrink: 0; }
+  .points { font-size: 1.25rem; font-weight: 700; color: var(--color-text-primary); line-height: 1.2; }
+  .label { font-size: 0.75rem; color: var(--color-text-secondary); }
+  .section { margin-top: 1.5rem; }
+  .section h2 { font-size: 1rem; margin-bottom: 0.5rem; }
+  @media (max-width: 360px) { .badge-card { flex-direction: column; align-items: flex-start; } }
+  @media (min-width: 768px) { .badge-card { max-width: 360px; } }
+</style>
+</head>
+<body>
+<div class="mockup" aria-label="Mockup badge niveau s20 — référence visuelle">
+  <h1>Badge niveau — Extension dashboard <strong>élève</strong></h1>
+  <p class="subtitle">Référence pour <code>&lt;LevelBadge&gt;</code> + <code>&lt;Card&gt;</code> — pas du code production. Tokens du design-system uniquement.</p>
+
+  <section class="section" aria-label="Trois états du badge">
+    <h2>États du badge (3 niveaux)</h2>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap;" role="list" aria-label="Badges niveau">
+      <article role="listitem" aria-label="Apprenti" style="flex:1; min-width:260px;">
+        <div class="badge-card">
+          <div class="badge badge-apprentice" aria-label="Niveau Apprenti">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+            Apprenti
+          </div>
+          <div>
+            <div class="points">23 pts</div>
+            <div class="label">Points • Niveau débutant</div>
+          </div>
+        </div>
+      </article>
+      <article role="listitem" aria-label="Confirmé" style="flex:1; min-width:260px;">
+        <div class="badge-card">
+          <div class="badge badge-confirmed" aria-label="Niveau Confirmé">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+            Confirmé
+          </div>
+          <div>
+            <div class="points">127 pts</div>
+            <div class="label">Points • Niveau intermédiaire</div>
+          </div>
+        </div>
+      </article>
+      <article role="listitem" aria-label="Expert" style="flex:1; min-width:260px;">
+        <div class="badge-card">
+          <div class="badge badge-expert" aria-label="Niveau Expert">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+            Expert
+          </div>
+          <div>
+            <div class="points">512 pts</div>
+            <div class="label">Points • Niveau avancé</div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" aria-label="Contexte dashboard élève (s16)">
+    <h2>Emplacement dans le dashboard <code>/api/dashboard/eleve</code></h2>
+    <p style="font-size:0.875rem;color:var(--color-text-secondary);">
+      Le badge apparaît dans la section supérieure du dashboard (au-dessus des cartes par matière), dans un <code>&lt;Card&gt;</code> réutilisé. Responsive : pleine largeur sur 360px ; colonne de 4/12 (gauche) sur ≥ 768px, avec la carte globale s16 en 8/12 (droite).
+    </p>
+  </section>
+
+  <section class="section" aria-label="Accessibilité et états">
+    <h2>Accessibilité & états</h2>
+    <ul style="font-size:0.875rem; color: var(--color-text-secondary); padding-left: 1.25rem;">
+      <li><strong>ARIA</strong> : le badge porte <code>aria-label="Niveau ..."</code> ; chaque article a <code>role="listitem"</code> ; la section a <code>aria-label</code>.</li>
+      <li><strong>Contraste</strong> : texte sur fond blanc (AA) ; couleur de bordure sur fond blanc (AA pour l'indicateur visuel).</li>
+      <li><strong>Focus visible</strong> : le composant production doit avoir <code>:focus-visible</code> (Tailwind) si interactif (clic pour détails).</li>
+      <li><strong>Responsive</strong> : testé à 360px (flex-direction column) et 768px+ (row aligné).</li>
+    </ul>
+  </section>
+</div>
+</body>
+</html>

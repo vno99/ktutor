@@ -172,6 +172,16 @@
       "loadingDetail": "Chargement du tableau de bord de {child}…"
     }
   },
+  "rewards": {
+    "section": "Récompenses",
+    "points": "points",
+    "badgeAria": "Niveau {level} — {points} points",
+    "level": {
+      "apprentice": "Apprenti",
+      "confirmed": "Confirmé",
+      "expert": "Expert"
+    }
+  },
   "history": {
     "title": "Mes conversations",
     "detailTitle": "Conversation",
