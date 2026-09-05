@@ -1,0 +1,18 @@
+{
+  "register": {
+    "pseudo_taken": "Ce pseudo est déjà pris.",
+    "invalid_pseudo": "Pseudo invalide. 3 à 32 caractères (lettres, chiffres, underscore).",
+    "weak_password": "Mot de passe trop faible (8 caractères minimum).",
+    "internal": "Erreur interne."
+  },
+  "login": {
+    "invalid_credentials": "Pseudo ou mot de passe incorrect.",
+    "invalid_token": "Refresh token invalide.",
+    "forbidden": "Accès refusé.",
+    "expired": "Token expiré.",
+    "token_revoked": "Token révoqué."
+  },
+  "logout": {
+    "token_missing_or_invalid": "Token manquant ou invalide."
+  }
+}
