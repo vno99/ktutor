@@ -7,7 +7,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -414,3 +425,141 @@ Index(
     func.lower(User.__table__.c.pseudo),
     unique=True,
 )
+
+
+class Conversation(Base):
+    """A chat conversation between one student and one subject agent (s19).
+
+    The model is the persistence target of the stream-side
+    persistence block wired into ``POST /api/chat/stream`` (T5)
+    and is read by the ``GET /api/chat/history`` endpoints
+    (T3). The story's AC1-AC7 ride on this table.
+
+    Multi-tenancy: the ``student_pseudo`` FK is the source of
+    truth — every query MUST filter on this column extracted from
+    the JWT (never from a body or URL field). The
+    ``UNIQUE(student_pseudo, subject)`` constraint enforces
+    "one conversation per (eleve, subject)" at the DB level
+    (ADR 015 Decision 1); the stream-side persistence code
+    upserts on this pair and the DB catches the race.
+
+    Denormalised fields: ``first_question`` and ``message_count``
+    are duplicated to avoid scanning the messages table on the
+    list endpoint. The stream-side persistence maintains the
+    consistency in the same DB transaction as the message INSERT
+    (T5).
+
+    No Alembic migration is needed — ``init_db()``
+    (``database/session.py:56``) creates the table via
+    ``Base.metadata.create_all`` and SQLite in-memory tests pick
+    it up at fixture time. The pattern is identical to
+    :class:`Evaluation` (s18) and :class:`Attempt` (s04).
+    """
+
+    __tablename__ = "conversations"
+    __table_args__ = (
+        UniqueConstraint(
+            "student_pseudo",
+            "subject",
+            name="uq_conversation_student_subject",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    student_pseudo: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    subject: Mapped[Subject] = mapped_column(
+        Enum(Subject, name="subject_enum", native_enum=False, length=32),
+        nullable=False,
+    )
+    # Sized to fit a 2000-char question (matches
+    # ``ChatStreamRequest.question``'s ``max_length=2000``). The
+    # doc's target ``TEXT`` is replaced with ``String(2000)`` to
+    # avoid unbounded strings on SQLite/PostgreSQL; the question
+    # is already length-bounded at the Pydantic layer.
+    first_question: Mapped[str] = mapped_column(String(2000), nullable=False)
+    message_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    last_activity_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<Conversation id={self.id} pseudo={self.student_pseudo!r} "
+            f"subject={self.subject.value} messages={self.message_count}>"
+        )
+
+
+class Message(Base):
+    """A single message in a :class:`Conversation` (s19).
+
+    The model is the persistence target of the stream-side
+    persistence block: every stream writes two rows
+    (``role="user"`` for the question, ``role="assistant"`` for
+    the response). The detail endpoint returns the messages in
+    ``created_at ASC`` order.
+
+    The ``role`` column is constrained at the DB level to the
+    two allowed values (``"user"`` / ``"assistant"``) so a
+    future regression that persists a stray value is caught
+    at commit time.
+
+    The ``sources`` column is JSON (portable SQLite/PostgreSQL,
+    per the codebase convention) and stays NULL on user messages.
+
+    No Alembic migration is needed — see :class:`Conversation`.
+    """
+
+    __tablename__ = "messages"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('user','assistant')",
+            name="ck_message_role_allowed",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    # ``String(8192)`` matches the codebase convention
+    # (``Document.filename=512``, ``Evaluation.teacher_comments=8192``)
+    # and the port-SQLite constraint in ``architecture.md:230-233``.
+    # An 8KB cap is enough for the POC. See ADR 015 Decision 2.
+    content: Mapped[str] = mapped_column(String(8192), nullable=False)
+    sources: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<Message id={self.id} conversation_id={self.conversation_id} "
+            f"role={self.role!r}>"
+        )

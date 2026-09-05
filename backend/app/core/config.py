@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     chat_stream_max_chunks: int = 5000
     # Heartbeat interval in milliseconds (s09 D6). 0 = disabled (YAGNI).
     chat_stream_heartbeat_ms: int = 0
+    # Stream-side persistence toggle (s19, ADR 015 § Decision 4).
+    # When ``True`` (the default), ``/api/chat/stream`` writes the
+    # user + assistant messages to PostgreSQL AFTER the SSE loop
+    # closes (in a ``try/finally``). When ``False``, the stream is
+    # a no-op on the DB. The toggle exists so the s09 test suite
+    # (which does not seed ``Conversation`` rows) can opt out of
+    # the writes via a per-test fixture-level monkeypatch. The
+    # flag is an internal implementation knob, NOT a product
+    # feature.
+    chat_persist_history: bool = True
 
     @property
     def cors_allow_origins_list(self) -> list[str]:

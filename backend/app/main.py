@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.api.auth.router import router as auth_router
-from app.api.chat.router import router as chat_router
+from app.api.chat import chat_history_router, chat_router
 from app.api.dashboard.eleve import router as dashboard_eleve_router
 from app.api.dashboard.parent import router as dashboard_parent_router
 from app.api.documents.router import router as documents_router
@@ -74,6 +74,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_router)
+app.include_router(chat_history_router)
 app.include_router(documents_router)
 app.include_router(auth_router)
 app.include_router(users_router)

@@ -50,6 +50,7 @@ export function Header({ activeNav }: { activeNav?: 'eleve' | 'parent' | null } 
   const pathname = usePathname() ?? '';
   const isChatActive = pathname.endsWith('/chat');
   const isUploadActive = pathname.endsWith('/upload');
+  const isHistoryActive = pathname.includes('/history');
   const isDashboardEleveActive = pathname.endsWith('/dashboard/eleve');
   const isDashboardParentActive = pathname.includes('/dashboard/parent');
 
@@ -115,6 +116,17 @@ export function Header({ activeNav }: { activeNav?: 'eleve' | 'parent' | null } 
           >
             {t('navUpload')}
           </Link>
+          {showAuthed ? (
+            <Link
+              href="/history"
+              className={`hover:text-text-primary transition-colors ${
+                isHistoryActive ? 'text-text-primary font-medium' : ''
+              }`}
+              aria-current={isHistoryActive ? 'page' : undefined}
+            >
+              {t('navHistory')}
+            </Link>
+          ) : null}
           {activeNav === 'eleve' ? (
             <Link
               href="/dashboard/eleve"

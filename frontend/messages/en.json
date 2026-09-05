@@ -19,6 +19,7 @@
     "pseudoHelp": "Choose a pseudo (3 to 32 characters, letters, digits, underscore).",
     "navChat": "Chat",
     "navUpload": "Upload",
+    "navHistory": "History",
     "avatarAlt": "{pseudo}'s avatar"
   },
   "chat": {
@@ -170,5 +171,39 @@
       "loadingList": "Loading your children…",
       "loadingDetail": "Loading {child}'s dashboard…"
     }
+  },
+  "history": {
+    "title": "My conversations",
+    "detailTitle": "Conversation",
+    "loading": "Loading history…",
+    "empty": "You haven't asked a question yet.",
+    "emptyCta": "Start a conversation to find it here.",
+    "emptyButton": "Start a conversation",
+    "filterAllSubjects": "All subjects",
+    "filterMaths": "Mathematics",
+    "filterFrancais": "French",
+    "previous": "Previous",
+    "next": "Next",
+    "paginationLabel": "Pagination",
+    "previousAria": "Previous page",
+    "nextAria": "Next page",
+    "metaCount": "{count, plural, =0 {no messages} one {1 message} other {{count} messages}}",
+    "openConversation": "Open conversation",
+    "errorTitle": "Could not load history",
+    "errorBody": "Something went wrong. Please try again in a moment.",
+    "errorNetwork": "Network error. Check your connection.",
+    "error401": "Session expired. Please sign in again.",
+    "error403": "Access denied.",
+    "error404": "Conversation not found.",
+    "error500": "Server error. Please try again in a few minutes.",
+    "retry": "Retry",
+    "reconnect": "Sign in again",
+    "notFound": "This conversation does not exist or does not belong to you.",
+    "back": "Back to history",
+    "roleYou": "You",
+    "roleAssistant": "ktutor · {subject}",
+    "sourcesLabel": "Sources:",
+    "subjectMaths": "Mathematics",
+    "subjectFrancais": "French"
   }
 }

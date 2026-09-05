@@ -670,3 +670,267 @@ class TestEvaluationModel:
         assert ev.status is EvaluationStatus.MANUAL_REVIEW_NEEDED
         assert ev.score is None
         assert ev.max_score is None
+
+
+# ---------------------------------------------------------------------------
+# s19 — Conversation and Message models
+# ---------------------------------------------------------------------------
+
+
+class TestConversationModel:
+    """SQLAlchemy ``Conversation`` model (s19).
+
+    Locks the persistence shape of the chat history table:
+
+    * UUID PK is auto-generated and survives a commit/refresh round-trip;
+    * the minimum required fields (student_pseudo, subject, first_question)
+      are enough to insert a row — every denormalised field is nullable
+      or has a server default;
+    * the ``UNIQUE(student_pseudo, subject)`` constraint enforces the
+      "one conversation per (eleve, subject)" invariant at the DB level
+      (ADR 015 Decision 1).
+    """
+
+    def test_tablename_is_conversations(self) -> None:
+        from app.core.database.models import Conversation
+
+        assert Conversation.__tablename__ == "conversations"
+
+    def test_table_is_registered_in_base_metadata(self) -> None:
+
+        assert "conversations" in Base.metadata.tables
+
+    def test_expected_columns(self) -> None:
+        """The table metadata carries every named column with its
+        declared type. Catches typos in ``mapped_column`` and
+        accidental renames."""
+        from app.core.database.models import Conversation
+
+        table = Conversation.__table__
+        assert "id" in table.c
+        assert "student_pseudo" in table.c
+        assert "subject" in table.c
+        assert "first_question" in table.c
+        assert "message_count" in table.c
+        assert "last_activity_at" in table.c
+        assert "created_at" in table.c
+
+    def test_create_conversation_with_minimal_fields(self, session) -> None:
+        from app.core.database.models import Conversation
+
+        session.add(User(pseudo="ali", password_hash=hash_password("passwordone1")))
+        session.commit()
+
+        conv = Conversation(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            first_question="2+2 ?",
+            message_count=2,
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+
+        assert isinstance(conv.id, uuid.UUID)
+        assert conv.student_pseudo == "ali"
+        assert conv.subject is Subject.MATHS
+        assert conv.first_question == "2+2 ?"
+        assert conv.message_count == 2
+        assert isinstance(conv.last_activity_at, datetime)
+        assert isinstance(conv.created_at, datetime)
+
+    def test_unique_constraint_student_subject_rejects_duplicate(
+        self, session
+    ) -> None:
+        """The DB rejects two ``Conversation`` rows with the same
+        ``(student_pseudo, subject)`` pair. The "one conversation per
+        (eleve, subject)" invariant is enforced at the DB level (last
+        line of defence) — the stream-side persistence code may race,
+        the DB cannot.
+        """
+        from app.core.database.models import Conversation
+
+        session.add(User(pseudo="ali", password_hash=hash_password("passwordone1")))
+        session.commit()
+
+        session.add(
+            Conversation(
+                student_pseudo="ali",
+                subject=Subject.MATHS,
+                first_question="Q1",
+                message_count=2,
+            )
+        )
+        session.commit()
+
+        session.add(
+            Conversation(
+                student_pseudo="ali",
+                subject=Subject.MATHS,
+                first_question="Q2",
+                message_count=2,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    def test_same_pseudo_two_subjects_both_inserted(self, session) -> None:
+        """The UNIQUE constraint is on the (pseudo, subject) PAIR.
+        A pupil can have one conversation per subject — maths and
+        francais coexist freely."""
+        from app.core.database.models import Conversation
+
+        session.add(User(pseudo="ali", password_hash=hash_password("passwordone1")))
+        session.commit()
+
+        session.add_all(
+            [
+                Conversation(
+                    student_pseudo="ali",
+                    subject=Subject.MATHS,
+                    first_question="dérivée ?",
+                    message_count=2,
+                ),
+                Conversation(
+                    student_pseudo="ali",
+                    subject=Subject.FRANCAIS,
+                    first_question="métaphore ?",
+                    message_count=2,
+                ),
+            ]
+        )
+        session.commit()
+        assert (
+            session.query(Conversation)
+            .filter(Conversation.student_pseudo == "ali")
+            .count()
+            == 2
+        )
+
+
+class TestMessageModel:
+    """SQLAlchemy ``Message`` model (s19).
+
+    Locks the persistence shape of the messages table:
+
+    * UUID PK is auto-generated and survives a commit/refresh round-trip;
+    * the ``role`` column is constrained to ``"user"`` or ``"assistant"``;
+    * ``content`` is ``String(8192)`` per ADR 015 Decision 2;
+    * ``sources`` is a JSON column (portable SQLite/PostgreSQL) and
+      stays NULL on user messages.
+    """
+
+    def test_tablename_is_messages(self) -> None:
+        from app.core.database.models import Message
+
+        assert Message.__tablename__ == "messages"
+
+    def test_table_is_registered_in_base_metadata(self) -> None:
+
+        assert "messages" in Base.metadata.tables
+
+    def test_expected_columns(self) -> None:
+        from app.core.database.models import Message
+
+        table = Message.__table__
+        assert "id" in table.c
+        assert "conversation_id" in table.c
+        assert "role" in table.c
+        assert "content" in table.c
+        assert "sources" in table.c
+        assert "created_at" in table.c
+
+    def test_create_message_user_with_no_sources(self, session) -> None:
+        from app.core.database.models import Conversation, Message
+
+        session.add(User(pseudo="ali", password_hash=hash_password("passwordone1")))
+        session.commit()
+        conv = Conversation(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            first_question="2+2 ?",
+            message_count=2,
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+
+        msg = Message(
+            conversation_id=conv.id,
+            role="user",
+            content="2+2 ?",
+            sources=None,
+        )
+        session.add(msg)
+        session.commit()
+        session.refresh(msg)
+
+        assert isinstance(msg.id, uuid.UUID)
+        assert msg.conversation_id == conv.id
+        assert msg.role == "user"
+        assert msg.content == "2+2 ?"
+        assert msg.sources is None
+        assert isinstance(msg.created_at, datetime)
+
+    def test_create_message_assistant_with_sources(self, session) -> None:
+        from app.core.database.models import Conversation, Message
+
+        session.add(User(pseudo="ali", password_hash=hash_password("passwordone1")))
+        session.commit()
+        conv = Conversation(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            first_question="2+2 ?",
+            message_count=2,
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+
+        sources = [
+            {"filename": "cours.pdf", "chunk_index": 0},
+            {"filename": "cours.pdf", "chunk_index": 1},
+        ]
+        msg = Message(
+            conversation_id=conv.id,
+            role="assistant",
+            content="La réponse est 4.",
+            sources=sources,
+        )
+        session.add(msg)
+        session.commit()
+        session.refresh(msg)
+
+        assert msg.role == "assistant"
+        assert msg.sources == sources
+
+    def test_role_check_constraint_rejects_other_values(self, session) -> None:
+        """The DB-level CHECK on ``role`` blocks any value other than
+        ``"user"`` or ``"assistant"``. A regression that persisted
+        an ``"agent"`` role (typo) would be caught here.
+        """
+        from app.core.database.models import Conversation, Message
+
+        session.add(User(pseudo="ali", password_hash=hash_password("passwordone1")))
+        session.commit()
+        conv = Conversation(
+            student_pseudo="ali",
+            subject=Subject.MATHS,
+            first_question="2+2 ?",
+            message_count=2,
+        )
+        session.add(conv)
+        session.commit()
+        session.refresh(conv)
+
+        session.add(
+            Message(
+                conversation_id=conv.id,
+                role="system",
+                content="bad",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
