@@ -42,6 +42,15 @@ from app.core.auth.passwords import hash_password, verify_password
 from app.core.config import get_settings
 from app.core.database.models import User, UserRole
 from app.core.database.session import get_db
+from app.core.i18n import get_message
+
+
+def _locale_from_header(accept_language: str | None) -> str:
+    if accept_language is None:
+        return "fr"
+    primary = accept_language.split(",")[0].strip()
+    lang = primary.split(";")[0].strip().lower()[:2]
+    return lang if lang in ("en", "fr") else ("en" if "en" in accept_language.lower() else "fr")
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -86,6 +95,7 @@ def _auth_error_payload(*, message: str, code: str) -> dict:
 def register(
     body: RegisterRequest,
     db: Session = Depends(get_db),
+    accept_language: str | None = Header(default=None, alias="Accept-Language"),
 ) -> RegisterResponse:
     """Create a new ``eleve`` account.
 
@@ -106,7 +116,7 @@ def register(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_register_error_payload(
-                message="Ce pseudo est déjà pris.",
+                message=get_message(_locale_from_header(accept_language), "register", "pseudo_taken"),
                 code="pseudo_taken",
             ),
         )
@@ -134,7 +144,7 @@ def register(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_register_error_payload(
-                message="Ce pseudo est déjà pris.",
+                message=get_message(_locale_from_header(accept_language), "register", "pseudo_taken"),
                 code="pseudo_taken",
             ),
         )
@@ -148,7 +158,7 @@ def register(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=_register_error_payload(
-                message="Erreur interne.",
+                message=get_message(_locale_from_header(accept_language), "register", "internal"),
                 code="internal",
             ),
         )
@@ -174,6 +184,7 @@ def register(
 def login(
     body: LoginRequest,
     db: Session = Depends(get_db),
+    accept_language: str | None = Header(default=None, alias="Accept-Language"),
 ) -> TokenPairResponse:
     """Authenticate a user and return an access + refresh token pair.
 
@@ -211,7 +222,7 @@ def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=_auth_error_payload(
-                message="Pseudo ou mot de passe incorrect.",
+                message=get_message(_locale_from_header(accept_language), "login", "invalid_credentials"),
                 code="invalid_credentials",
             ),
             headers={"WWW-Authenticate": "Bearer"},

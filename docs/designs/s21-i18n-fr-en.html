@@ -1,0 +1,172 @@
+<!doctype html>
+<!--
+  Mockup statique du composant <Header> avec <LanguageSwitcher> (story s21-i18n-fr-en).
+
+  ⚠️ RÉFÉRENCE, PAS DU CODE À COPIER.
+  L'implémentation vit dans frontend/components/LanguageSwitcher.tsx
+  et frontend/components/Header.tsx (déjà implémentés en s11a/s11b/s11c).
+
+  Ce fichier montre uniquement la cohérence visuelle du switcher
+  dans le header : pill FR | EN, états actif/inactif, cookie NEXT_LOCALE.
+  Aucune nouvelle page, aucun nouveau composant — consolidation i18n.
+
+  Les couleurs/espacements viennent des variables CSS du design-system
+  (cf. frontend/app/globals.css et docs/design-system.md).
+-->
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mockup Header + LanguageSwitcher — s21-i18n-fr-en</title>
+  <style>
+    :root {
+      --color-primary: #3D5AFE;
+      --color-primary-strong: #1E2A8A;
+      --color-canvas: #FAFBFC;
+      --color-surface: #FFFFFF;
+      --color-surface-subtle: #F4F6FA;
+      --color-border: #E2E6EE;
+      --color-text-primary: #0D0F14;
+      --color-text-secondary: #5B6472;
+      --color-text-tertiary: #8B95A3;
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --color-canvas: #0D0F14;
+        --color-surface: #161A22;
+        --color-surface-subtle: #1E232E;
+        --color-border: #2A2F3B;
+        --color-text-primary: #F4F6FA;
+        --color-text-secondary: #9AA3B2;
+        --color-text-tertiary: #6B7484;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: var(--font-sans);
+      background: var(--color-canvas);
+      color: var(--color-text-primary);
+    }
+    /* Header sticky (design-system l. 174) */
+    .header {
+      position: sticky; top: 0; z-index: 10;
+      height: 56px; width: 100%;
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      display: flex; align-items: center;
+      padding: 0 16px;
+      gap: 16px;
+    }
+    .logo {
+      font-weight: 700; font-size: 18px;
+      color: var(--color-primary-strong);
+      text-decoration: none; flex-shrink: 0;
+    }
+    .nav { display: flex; gap: 16px; font-size: 14px; color: var(--color-text-secondary); }
+    .nav a { color: inherit; text-decoration: none; transition: color .15s; }
+    .nav a:hover, .nav a.active { color: var(--color-text-primary); font-weight: 500; }
+    .spacer { flex: 1; }
+
+    /* LanguageSwitcher (design-system l. 127) */
+    .switcher {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px; border: 1px solid var(--color-border);
+      border-radius: 9999px; background: var(--color-surface);
+    }
+    .switcher button {
+      border: none; background: transparent; cursor: pointer;
+      height: 32px; padding: 0 12px; border-radius: 9999px;
+      font-size: 12px; font-weight: 500; line-height: 1;
+      font-family: inherit; color: var(--color-text-secondary);
+      transition: background .15s, color .15s;
+    }
+    .switcher button[aria-pressed="true"] {
+      background: var(--color-primary); color: #fff;
+    }
+    .switcher button:hover:not([aria-pressed="true"]) {
+      background: var(--color-surface-subtle);
+    }
+    .switcher button:focus-visible {
+      outline: 2px solid var(--color-primary); outline-offset: 2px;
+    }
+
+    /* Auth afford (design-system l. 128) */
+    .auth-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 36px; padding: 0 12px; border-radius: 6px;
+      font-size: 14px; font-weight: 500;
+      background: var(--color-primary); color: #fff;
+      text-decoration: none; border: none; cursor: pointer;
+      transition: background .15s;
+    }
+    .auth-btn:hover { background: var(--color-primary-strong); }
+
+    /* Section label */
+    .section { padding: 32px 24px; max-width: 960px; margin: 0 auto; }
+    h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; letter-spacing: -0.011em; }
+    p.meta { margin: 0; font-size: 14px; color: var(--color-text-secondary); }
+    .note { margin-top: 24px; padding: 12px 16px; background: var(--color-surface-subtle); border-left: 3px solid var(--color-primary); border-radius: 0 6px 6px 0; font-size: 13px; color: var(--color-text-secondary); }
+  </style>
+</head>
+<body>
+
+  <!-- État 1 : locale FR (défaut) — cookie NEXT_LOCALE = fr -->
+  <section aria-label="État FR (défaut)">
+    <header class="header" role="banner">
+      <a href="#" class="logo" aria-label="ktutor">ktutor</a>
+      <nav class="nav" aria-label="Primary">
+        <a href="#" class="active" aria-current="page">Chat</a>
+        <a href="#">Upload</a>
+      </nav>
+      <div class="spacer"></div>
+      <div class="switcher" role="group" aria-label="Langue">
+        <button type="button" aria-pressed="true" aria-label="Passer en français">FR</button>
+        <button type="button" aria-pressed="false" aria-label="Passer en anglais">EN</button>
+      </div>
+      <a href="#" class="auth-btn" aria-label="Se connecter">Se connecter</a>
+    </header>
+    <div class="section">
+      <h2>État FR — locale active <code>fr</code></h2>
+      <p class="meta">URL : <code>/fr/chat</code> · Cookie <code>NEXT_LOCALE=fr</code> · Middleware <code>createMiddleware(routing)</code> redirige vers le préfixe.</p>
+      <div class="note">
+        <strong>Note de design :</strong> le <code>&lt;LanguageSwitcher&gt;</code> réutilise le composant existant (<code>frontend/components/LanguageSwitcher.tsx</code>). Aucune modification de layout du header n'est nécessaire pour s21 — la consolidation i18n est invisible côté UI, visible uniquement dans le cookie et dans le préfixe URL.
+      </div>
+    </div>
+  </section>
+
+  <hr style="border:none; border-top:1px solid var(--color-border); margin:0;">
+
+  <!-- État 2 : locale EN — cookie NEXT_LOCALE = en -->
+  <section aria-label="État EN">
+    <header class="header" role="banner">
+      <a href="#" class="logo" aria-label="ktutor">ktutor</a>
+      <nav class="nav" aria-label="Primary">
+        <a href="#">Chat</a>
+        <a href="#">Upload</a>
+      </nav>
+      <div class="spacer"></div>
+      <div class="switcher" role="group" aria-label="Language">
+        <button type="button" aria-pressed="false" aria-label="Switch to French">FR</button>
+        <button type="button" aria-pressed="true" aria-label="Switch to English">EN</button>
+      </div>
+      <a href="#" class="auth-btn" aria-label="Sign in">Sign in</a>
+    </header>
+    <div class="section">
+      <h2>État EN — locale active <code>en</code></h2>
+      <p class="meta">URL : <code>/en/chat</code> · Cookie <code>NEXT_LOCALE=en</code> · Catalogues <code>messages/en.json</code> chargés.</p>
+      <div class="note">
+        <strong>Note backend (s21) :</strong> le backend doit lire l'en-tête <code>Accept-Language</code> (ou la locale dérivée du cookie/URL) et renvoyer les messages d'erreur dans la langue demandée. Actuellement (<code>backend/app/api/auth/schemas.py</code>), les messages sont hardcodés en français. Le contrat backend est : chaque code d'erreur machine (<code>RegisterErrorCode</code>, <code>AuthErrorCode</code>) reçoit un message traduit selon la locale.
+      </div>
+    </div>
+  </section>
+
+  <footer style="padding:24px 16px; text-align:center; font-size:12px; color:var(--color-text-tertiary);">
+    Référence — s21-i18n-fr-en. Ne pas copier en production. Source : <code>frontend/components/LanguageSwitcher.tsx</code> + <code>frontend/components/Header.tsx</code>.
+  </footer>
+</body>
+</html>

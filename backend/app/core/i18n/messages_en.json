@@ -1,0 +1,18 @@
+{
+  "register": {
+    "pseudo_taken": "This pseudo is already taken.",
+    "invalid_pseudo": "Invalid pseudo. 3 to 32 characters (letters, digits, underscore).",
+    "weak_password": "Password too weak (minimum 8 characters).",
+    "internal": "Internal error."
+  },
+  "login": {
+    "invalid_credentials": "Incorrect pseudo or password.",
+    "invalid_token": "Invalid refresh token.",
+    "forbidden": "Access denied.",
+    "expired": "Token expired.",
+    "token_revoked": "Token revoked."
+  },
+  "logout": {
+    "token_missing_or_invalid": "Token missing or invalid."
+  }
+}
