@@ -187,7 +187,7 @@ export const FileUpload = forwardRef<HTMLInputElement, FileUploadProps>(
         onDrop={handleDrop}
       >
         <UploadCloud
-          className="text-text-tertiary mb-2"
+          className="text-text-secondary mb-2"
           size={32}
           aria-hidden="true"
         />
