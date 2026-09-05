@@ -34,7 +34,6 @@ from typing import Any, Literal, Protocol
 from app.core.config import Settings
 from app.core.database.models import Evaluation, EvaluationStatus, Subject
 from app.services.rag.ocr import OcrError, OcrResult
-from app.services.storage.minio_client import MinioClient
 
 # A canonical ``<n>/<m>`` pattern in the OCR text. Anchored on the
 # slash so a stray ``12`` in the prose (e.g. ``élève a 12 ans``) is
@@ -492,6 +491,7 @@ def _ms_since(start: float) -> int:
 __all__ = [
     "ALLOWED_IMAGE_EXTENSIONS",
     "EVALUATION_PROMPT",
+    "SCORE_RE",
     "EvaluationError",
     "EvaluationErrorKind",
     "EvaluationExtractionError",
@@ -499,5 +499,4 @@ __all__ = [
     "EvaluationService",
     "EvaluationUploadResult",
     "ExtractionResult",
-    "SCORE_RE",
 ]

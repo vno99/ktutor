@@ -31,7 +31,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -43,7 +42,6 @@ from app.core.auth.jwt import create_access_token
 from app.core.auth.passwords import hash_password
 from app.core.database.models import (
     Base,
-    Evaluation,
     EvaluationStatus,
     User,
     UserRole,
@@ -53,7 +51,6 @@ from app.main import app
 from app.services.ocr.evaluation_extractor import (
     EvaluationError,
     EvaluationErrorKind,
-    EvaluationExtractionError,
     EvaluationExtractor,
     EvaluationService,
     EvaluationUploadResult,
@@ -61,7 +58,6 @@ from app.services.ocr.evaluation_extractor import (
 from app.services.rag.ocr import OcrResult
 from app.services.storage.minio_client import MinioClient
 from tests.services.storage.test_s3_client import FakeS3
-
 
 # ---------------------------------------------------------------------------
 # s15 JWT + DB fixtures (mirror of test_documents.py)

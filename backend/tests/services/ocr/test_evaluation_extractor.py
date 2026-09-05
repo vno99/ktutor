@@ -15,24 +15,21 @@ S3 calls, DB rows), not on which internal method got invoked.
 
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.core.auth.passwords import hash_password
 from app.core.config import Settings
 from app.core.database.models import (
     Base,
     Evaluation,
     EvaluationStatus,
-    Subject,
     User,
 )
-from app.core.auth.passwords import hash_password
 from app.services.ocr.evaluation_extractor import (
     EvaluationError,
     EvaluationErrorKind,
@@ -43,7 +40,6 @@ from app.services.ocr.evaluation_extractor import (
 from app.services.rag.ocr import OcrError, OcrResult
 from app.services.storage.minio_client import MinioClient
 from tests.services.storage.test_s3_client import FakeS3
-
 
 # ---------------------------------------------------------------------------
 # OCR transport double — replaces the real DeepSeek-OCR-2 service.
