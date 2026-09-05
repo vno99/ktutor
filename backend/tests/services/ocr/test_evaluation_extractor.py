@@ -28,6 +28,7 @@ from app.core.database.models import (
     Base,
     Evaluation,
     EvaluationStatus,
+    Subject,
     User,
 )
 from app.services.ocr.evaluation_extractor import (
@@ -36,6 +37,7 @@ from app.services.ocr.evaluation_extractor import (
     EvaluationExtractionError,
     EvaluationExtractor,
     EvaluationService,
+    EvaluationStateError,
 )
 from app.services.rag.ocr import OcrError, OcrResult
 from app.services.storage.minio_client import MinioClient
@@ -493,3 +495,315 @@ class TestEvaluationService:
         assert "taille" in str(exc_info.value).lower()
         # No S3 push.
         assert fake.put_calls == []
+
+
+# ---------------------------------------------------------------------------
+# s18b — EvaluationService.score_manual / EvaluationService.reprocess
+# ---------------------------------------------------------------------------
+
+
+def _seed_manual_review_row(session_factory, *, score=None, max_score=None) -> Evaluation:
+    """Seed a single Evaluation row in MANUAL_REVIEW_NEEDED.
+
+    The row is committed and the caller is expected to be the same
+    session that committed it (so the row is queryable from a fresh
+    session — mirrors s18's existing test pattern)."""
+    import uuid as _uuid
+    from datetime import UTC, datetime
+
+    with session_factory() as s:
+        row = Evaluation(
+            id=_uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            student_pseudo="alice",
+            subject=Subject.MATHS,
+            s3_key="students/alice/11111111-1111-1111-1111-111111111111",
+            filename="copie.png",
+            status=EvaluationStatus.MANUAL_REVIEW_NEEDED,
+            score=score,
+            max_score=max_score,
+            annotations=None,
+            teacher_comments=None,
+            ocr_text="",
+            ocr_confidence=0.3,
+            error_reason="no_score_in_transcript",
+            created_at=datetime.now(UTC),
+        )
+        s.add(row)
+        s.commit()
+    return row
+
+
+def _seed_scored_row(session_factory) -> Evaluation:
+    import uuid as _uuid
+    from datetime import UTC, datetime
+
+    with session_factory() as s:
+        row = Evaluation(
+            id=_uuid.UUID("22222222-2222-2222-2222-222222222222"),
+            student_pseudo="alice",
+            subject=Subject.MATHS,
+            s3_key="students/alice/22222222-2222-2222-2222-222222222222",
+            filename="copie.png",
+            status=EvaluationStatus.SCORED,
+            score=8.0,
+            max_score=20.0,
+            annotations=None,
+            teacher_comments="Ancien commentaire",
+            ocr_text="Note : 8/20",
+            ocr_confidence=0.9,
+            error_reason=None,
+            created_at=datetime.now(UTC),
+        )
+        s.add(row)
+        s.commit()
+    return row
+
+
+class TestScoreManualService:
+    def test_score_manual_persists_score_and_status_scored(
+        self, session_factory
+    ) -> None:
+        """AC1 + AC5: a MANUAL_REVIEW_NEEDED row is updated to SCORED
+        with the supplied score / max_score / teacher_comments.
+        The service does NOT touch the S3 object (the file stays
+        under the original key)."""
+        import uuid as _uuid
+
+        _seed_manual_review_row(session_factory)
+        s3, fake = _make_s3_with_fake()
+        # Pre-seed the S3 object so the reprocess path could read it.
+        fake.objects[("bkt", "students/alice/11111111-1111-1111-1111-111111111111")] = b"x"
+        extractor = EvaluationExtractor(
+            ocr=_OcrStub(lambda p: OcrResult(ok=True, transcription="x", confidence=0.9)),
+            settings=_settings(),
+        )
+        service = EvaluationService(
+            s3_client=s3,
+            extractor=extractor,
+            session_factory=session_factory,
+            max_image_size_mb=20,
+        )
+
+        updated = service.score_manual(
+            evaluation_id=_uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            score=12.0,
+            max_score=20.0,
+            teacher_comments="Bon travail",
+        )
+
+        assert updated.status is EvaluationStatus.SCORED
+        assert updated.score == 12.0
+        assert updated.max_score == 20.0
+        assert updated.teacher_comments == "Bon travail"
+        # Persisted to DB.
+        with session_factory() as s:
+            row = s.get(Evaluation, _uuid.UUID("11111111-1111-1111-1111-111111111111"))
+            assert row is not None
+            assert row.status is EvaluationStatus.SCORED
+            assert row.score == 12.0
+            assert row.teacher_comments == "Bon travail"
+
+    def test_score_manual_raises_state_error_when_status_not_manual_review_needed(
+        self, session_factory
+    ) -> None:
+        """AC2: a SCORED row is rejected with EvaluationStateError.
+        The router maps this to 409."""
+        import uuid as _uuid
+
+        _seed_scored_row(session_factory)
+        s3, _ = _make_s3_with_fake()
+        extractor = EvaluationExtractor(
+            ocr=_OcrStub(lambda p: OcrResult(ok=True, transcription="x", confidence=0.9)),
+            settings=_settings(),
+        )
+        service = EvaluationService(
+            s3_client=s3,
+            extractor=extractor,
+            session_factory=session_factory,
+            max_image_size_mb=20,
+        )
+
+        with pytest.raises(EvaluationStateError):
+            service.score_manual(
+                evaluation_id=_uuid.UUID("22222222-2222-2222-2222-222222222222"),
+                score=15.0,
+                max_score=20.0,
+            )
+
+    def test_score_manual_raises_state_error_when_evaluation_missing(
+        self, session_factory
+    ) -> None:
+        """No row at the given id → EvaluationStateError(message='not_found')."""
+        import uuid as _uuid
+
+        s3, _ = _make_s3_with_fake()
+        extractor = EvaluationExtractor(
+            ocr=_OcrStub(lambda p: OcrResult(ok=True, transcription="x", confidence=0.9)),
+            settings=_settings(),
+        )
+        service = EvaluationService(
+            s3_client=s3,
+            extractor=extractor,
+            session_factory=session_factory,
+            max_image_size_mb=20,
+        )
+
+        with pytest.raises(EvaluationStateError) as exc_info:
+            service.score_manual(
+                evaluation_id=_uuid.UUID("99999999-9999-9999-9999-999999999999"),
+                score=10.0,
+                max_score=20.0,
+            )
+        assert "not_found" in str(exc_info.value)
+
+
+class TestReprocessService:
+    def test_reprocess_extracts_and_updates_to_scored(
+        self, session_factory, tmp_path: Path
+    ) -> None:
+        """AC4: a MANUAL_REVIEW_NEEDED row with an image in S3 is
+        re-extracted, the new score is parsed from the OCR text, and
+        the row is updated to SCORED with the new score."""
+        import uuid as _uuid
+
+        # Seed an image in FakeS3 with valid PNG bytes so the regex
+        # extractor can run on it (the bytes content does not matter —
+        # the OCR stub returns a fixed transcription).
+        fake = FakeS3()
+        s3 = MinioClient(
+            endpoint="localhost:8333", access_key="k", secret_key="s", bucket="bkt"
+        )
+        s3._client = fake  # type: ignore[attr-defined]
+        fake.objects[("bkt", "students/alice/11111111-1111-1111-1111-111111111111")] = (
+            b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+        )
+        _seed_manual_review_row(session_factory)
+
+        def _factory(prompt: str) -> OcrResult:
+            return OcrResult(
+                ok=True,
+                transcription="Note finale : 14/20",
+                confidence=0.92,
+            )
+
+        extractor = EvaluationExtractor(ocr=_OcrStub(_factory), settings=_settings())
+        service = EvaluationService(
+            s3_client=s3,
+            extractor=extractor,
+            session_factory=session_factory,
+            max_image_size_mb=20,
+        )
+
+        updated = service.reprocess(
+            evaluation_id=_uuid.UUID("11111111-1111-1111-1111-111111111111")
+        )
+        assert updated.evaluation.status is EvaluationStatus.SCORED
+        assert updated.evaluation.score == 14.0
+        assert updated.evaluation.max_score == 20.0
+        assert updated.extraction.source == "regex"
+        assert updated.previous_status is EvaluationStatus.MANUAL_REVIEW_NEEDED
+        # The DB row matches.
+        with session_factory() as s:
+            row = s.get(Evaluation, _uuid.UUID("11111111-1111-1111-1111-111111111111"))
+            assert row is not None
+            assert row.status is EvaluationStatus.SCORED
+            assert row.score == 14.0
+            assert row.max_score == 20.0
+
+    def test_reprocess_leaves_manual_review_needed_on_no_score(
+        self, session_factory
+    ) -> None:
+        """AC5 second branch: when the re-extraction finds no score,
+        the row stays MANUAL_REVIEW_NEEDED with ocr_text updated."""
+        import uuid as _uuid
+
+        fake = FakeS3()
+        s3 = MinioClient(
+            endpoint="localhost:8333", access_key="k", secret_key="s", bucket="bkt"
+        )
+        s3._client = fake  # type: ignore[attr-defined]
+        fake.objects[("bkt", "students/alice/11111111-1111-1111-1111-111111111111")] = (
+            b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+        )
+        _seed_manual_review_row(session_factory)
+
+        def _factory(prompt: str) -> OcrResult:
+            return OcrResult(
+                ok=True,
+                transcription="illisible",
+                confidence=0.7,
+                raw={
+                    "score": None,
+                    "max_score": None,
+                    "annotations": [],
+                    "teacher_comments": None,
+                    "ocr_text": "illisible",
+                    "ocr_confidence": 0.7,
+                },
+            )
+
+        extractor = EvaluationExtractor(ocr=_OcrStub(_factory), settings=_settings())
+        service = EvaluationService(
+            s3_client=s3,
+            extractor=extractor,
+            session_factory=session_factory,
+            max_image_size_mb=20,
+        )
+
+        updated = service.reprocess(
+            evaluation_id=_uuid.UUID("11111111-1111-1111-1111-111111111111")
+        )
+        assert updated.evaluation.status is EvaluationStatus.MANUAL_REVIEW_NEEDED
+        assert updated.evaluation.score is None
+        assert updated.extraction.source == "none"
+        # The ocr_text is updated so the next admin sees the latest transcript.
+        assert updated.evaluation.ocr_text == "illisible"
+
+    def test_reprocess_raises_state_error_when_already_scored(
+        self, session_factory
+    ) -> None:
+        """Re-extracting a SCORED row is forbidden (Piège 4) — the
+        service raises EvaluationStateError and the row is untouched."""
+        import uuid as _uuid
+
+        _seed_scored_row(session_factory)
+        s3, _ = _make_s3_with_fake()
+        extractor = EvaluationExtractor(
+            ocr=_OcrStub(lambda p: OcrResult(ok=True, transcription="x", confidence=0.9)),
+            settings=_settings(),
+        )
+        service = EvaluationService(
+            s3_client=s3,
+            extractor=extractor,
+            session_factory=session_factory,
+            max_image_size_mb=20,
+        )
+
+        with pytest.raises(EvaluationStateError):
+            service.reprocess(
+                evaluation_id=_uuid.UUID("22222222-2222-2222-2222-222222222222")
+            )
+
+    def test_reprocess_raises_state_error_when_evaluation_missing(
+        self, session_factory
+    ) -> None:
+        """No row at the given id → EvaluationStateError(not_found)."""
+        import uuid as _uuid
+
+        s3, _ = _make_s3_with_fake()
+        extractor = EvaluationExtractor(
+            ocr=_OcrStub(lambda p: OcrResult(ok=True, transcription="x", confidence=0.9)),
+            settings=_settings(),
+        )
+        service = EvaluationService(
+            s3_client=s3,
+            extractor=extractor,
+            session_factory=session_factory,
+            max_image_size_mb=20,
+        )
+
+        with pytest.raises(EvaluationStateError) as exc_info:
+            service.reprocess(
+                evaluation_id=_uuid.UUID("99999999-9999-9999-9999-999999999999")
+            )
+        assert "not_found" in str(exc_info.value)

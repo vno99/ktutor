@@ -39,6 +39,11 @@ RBAC). s18 only lets the **JWT user** upload, with
 ``student_pseudo = user.pseudo``. Parents uploading on behalf of
 their children are out of scope (s17 already pulls children's
 data; s18b can add a "submit on behalf of" mode if requested).
+
+s18b — two additional endpoints (manual score entry and reprocess)
+attach to this router. See ``score_manual`` and ``reprocess``
+below. They live in this same file by convention (one router per
+sub-domain, cf. ``documents/router.py`` and ``users/router.py``).
 """
 
 from __future__ import annotations
@@ -51,19 +56,31 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from loguru import logger
+from sqlalchemy.orm import Session
 
 from app.api.evaluations.factory import get_evaluation_service_dep
-from app.api.evaluations.schemas import UploadErrorResponse, UploadResponse
+from app.api.evaluations.schemas import (
+    EvaluationStateErrorResponse,
+    ReprocessResponse,
+    ScoreManualRequest,
+    ScoreManualResponse,
+    UploadErrorResponse,
+    UploadResponse,
+)
 from app.core.auth.middleware import (
     assert_jwt_pseudo_matches_or_403,
+    assert_parent_linked_to_child_or_403,
     get_current_user,
+    require_role,
 )
 from app.core.config import Settings, get_settings
-from app.core.database.models import User
+from app.core.database.models import Evaluation, User, UserRole
+from app.core.database.session import get_db
 from app.services.ocr.evaluation_extractor import (
     EvaluationError,
     EvaluationErrorKind,
     EvaluationService,
+    EvaluationStateError,
 )
 
 router = APIRouter(prefix="/api/evaluations", tags=["evaluations"])
@@ -247,6 +264,254 @@ def _status_for_evaluation_error(exc: EvaluationError, message: str) -> int:
         return status.HTTP_500_INTERNAL_SERVER_ERROR
     # Defensive fallback — should never trigger.
     return status.HTTP_500_INTERNAL_SERVER_ERROR
+
+
+# ---------------------------------------------------------------------------
+# s18b — POST /api/evaluations/{id}/score-manual
+#   and POST /api/evaluations/{id}/reprocess
+# ---------------------------------------------------------------------------
+
+
+def _state_error_to_status(exc: EvaluationStateError) -> int:
+    """Map an :class:`EvaluationStateError` to its HTTP status code.
+
+    The convention is: the message substring ``"not_found"`` is the
+    only 404 trigger; anything else is a 409 ``state_conflict`` (the
+    row is in a state that does not allow the requested transition).
+    """
+    if "not_found" in str(exc):
+        return status.HTTP_404_NOT_FOUND
+    return status.HTTP_409_CONFLICT
+
+
+def _state_error_code(exc: EvaluationStateError) -> str:
+    if "not_found" in str(exc):
+        return "not_found"
+    return "state_conflict"
+
+
+def _state_error_payload(exc: EvaluationStateError) -> dict:
+    """Build the canonical 404/409 body for an EvaluationStateError."""
+    return EvaluationStateErrorResponse(
+        error=str(exc), code=_state_error_code(exc)
+    ).model_dump()
+
+
+def _require_score_manual_authorized(
+    user: User,
+    evaluation_id: uuid.UUID,
+    *,
+    db: Session,
+) -> Evaluation:
+    """RBAC gate for ``score-manual``.
+
+    The contract is admin-OR-linked-parent (ADR 014). The row is
+    loaded FIRST so the helper can read ``row.student_pseudo`` (the
+    row's tenant) and not the URL path. A 404 ``not_found`` is
+    raised before the RBAC check so a non-authorised caller cannot
+    distinguish "missing row" from "row exists but you can't see
+    it" — the same anti-leak pattern as the documents router.
+
+    Returns the loaded :class:`Evaluation` (the handler re-uses the
+    row from the service response; loading here is just for the
+    RBAC check).
+    """
+    row = db.get(Evaluation, evaluation_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=EvaluationStateErrorResponse(
+                error="not_found", code="not_found"
+            ).model_dump(),
+        )
+    if user.role is UserRole.ADMIN:
+        return row
+    if user.role is UserRole.PARENT:
+        # The helper short-circuits on admin, raises 403 ``forbidden``
+        # on a parent who is not linked to the row's student.
+        assert_parent_linked_to_child_or_403(
+            user,
+            row.student_pseudo,
+            route=f"/api/evaluations/{evaluation_id}/score-manual",
+            db=db,
+        )
+        return row
+    # eleve (and any other role) → 403.
+    logger.info(
+        "auth.middleware.forbidden pseudo={} role={} required=['admin','parent']",
+        user.pseudo,
+        user.role.value,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"error": "Accès refusé.", "code": "forbidden"},
+    )
+
+
+@router.post(
+    "/{evaluation_id}/score-manual",
+    response_model=ScoreManualResponse,
+    responses={
+        403: {"model": UploadErrorResponse, "description": "Cible non autorisée."},
+        404: {
+            "model": EvaluationStateErrorResponse,
+            "description": "Évaluation introuvable.",
+        },
+        409: {
+            "model": EvaluationStateErrorResponse,
+            "description": "Évaluation déjà scorée.",
+        },
+        422: {
+            "model": UploadErrorResponse,
+            "description": "Payload invalide (Pydantic).",
+        },
+    },
+)
+async def score_manual(
+    evaluation_id: uuid.UUID,
+    body: ScoreManualRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    service: EvaluationService = Depends(get_evaluation_service_dep),
+) -> ScoreManualResponse:
+    """Persist a manually-entered score on a MANUAL_REVIEW_NEEDED row.
+
+    **RBAC** : admin-OR-linked-parent. The row is loaded first so the
+    parent-link check reads ``row.student_pseudo`` (the row's tenant)
+    rather than anything from the URL or body. An eleve caller is
+    rejected with 403 (Piège 5 — no ``row.student_pseudo ==
+    user.pseudo`` shortcut).
+
+    **State** : 404 if the row is missing, 409 ``state_conflict`` if
+    the row is not in ``MANUAL_REVIEW_NEEDED``. 422 is reserved for
+    Pydantic body validation (Piège 1).
+    """
+    # RBAC + row load.
+    _require_score_manual_authorized(user, evaluation_id, db=db)
+    try:
+        updated = service.score_manual(
+            evaluation_id=evaluation_id,
+            score=body.score,
+            max_score=body.max_score,
+            teacher_comments=body.teacher_comments,
+        )
+    except EvaluationStateError as exc:
+        http_status = _state_error_to_status(exc)
+        logger.warning(
+            "Eval score-manual refused: evaluation_id={} caller={} reason={}",
+            evaluation_id,
+            user.pseudo,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=http_status,
+            detail=_state_error_payload(exc),
+        )
+    # T5 — audit log on success. ``caller`` is the JWT pseudo (not
+    # the row's student_pseudo — that would be the **target**, not
+    # the operator). The teacher_comments value is intentionally
+    # absent (PII / AGENTS.md § Backend logging).
+    logger.info(
+        "security.evaluation_manual_score caller={} evaluation_id={} "
+        "new_score={} new_max_score={} student_pseudo={}",
+        user.pseudo,
+        evaluation_id,
+        body.score,
+        body.max_score,
+        updated.student_pseudo,
+    )
+    return ScoreManualResponse(
+        evaluation_id=updated.id,
+        status=updated.status.value,
+        score=updated.score,
+        max_score=updated.max_score,
+        teacher_comments=updated.teacher_comments,
+        created_at=updated.created_at,
+    )
+
+
+@router.post(
+    "/{evaluation_id}/reprocess",
+    response_model=ReprocessResponse,
+    responses={
+        403: {"model": UploadErrorResponse, "description": "Cible non autorisée."},
+        404: {
+            "model": EvaluationStateErrorResponse,
+            "description": "Évaluation introuvable.",
+        },
+        409: {
+            "model": EvaluationStateErrorResponse,
+            "description": "Évaluation déjà scorée.",
+        },
+        500: {
+            "model": UploadErrorResponse,
+            "description": "OCR ou stockage indisponible.",
+        },
+    },
+)
+async def reprocess(
+    evaluation_id: uuid.UUID,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: Session = Depends(get_db),
+    service: EvaluationService = Depends(get_evaluation_service_dep),
+) -> ReprocessResponse:
+    """Re-run the LLM vision extractor on the original image.
+
+    **RBAC** : admin only (AC4). Parents and eleves are rejected
+    with 403 by ``require_role(UserRole.ADMIN)``.
+
+    **State** : 404 if the row is missing, 409 ``state_conflict`` if
+    the row is already SCORED (Piège 4 — re-scorer une copie déjà
+    scorée n'a pas de sens en s18b).
+    """
+    # The ``require_role`` dependency already enforced admin. The
+    # row is loaded here so the 404 anti-leak is consistent with
+    # ``score-manual`` (and the service can short-circuit on
+    # state-conflict before the S3 download).
+    row = db.get(Evaluation, evaluation_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=EvaluationStateErrorResponse(
+                error="not_found", code="not_found"
+            ).model_dump(),
+        )
+    try:
+        outcome = service.reprocess(evaluation_id=evaluation_id)
+    except EvaluationStateError as exc:
+        http_status = _state_error_to_status(exc)
+        logger.warning(
+            "Eval reprocess refused: evaluation_id={} caller={} reason={}",
+            evaluation_id,
+            user.pseudo,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=http_status,
+            detail=_state_error_payload(exc),
+        )
+    # T5 — audit log on success. No OCR text, no image bytes, no
+    # teacher_comments in the log line (AGENTS.md § Backend logging).
+    logger.info(
+        "evaluation.reprocess_attempted caller={} evaluation_id={} "
+        "previous_status={} new_status={} new_score={} student_pseudo={}",
+        user.pseudo,
+        evaluation_id,
+        outcome.previous_status.value,
+        outcome.evaluation.status.value,
+        outcome.extraction.score,
+        outcome.evaluation.student_pseudo,
+    )
+    return ReprocessResponse(
+        evaluation_id=outcome.evaluation.id,
+        status=outcome.evaluation.status.value,
+        score=outcome.evaluation.score,
+        max_score=outcome.evaluation.max_score,
+        teacher_comments=outcome.evaluation.teacher_comments,
+        created_at=outcome.evaluation.created_at,
+        ocr_confidence=outcome.extraction.ocr_confidence,
+        source=outcome.extraction.source,
+    )
 
 
 __all__ = ["router"]

@@ -38,11 +38,15 @@ from fastapi.testclient import TestClient
 from sqlalchemy import StaticPool, create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app.api.evaluations.schemas import ScoreManualRequest
 from app.core.auth.jwt import create_access_token
 from app.core.auth.passwords import hash_password
 from app.core.database.models import (
     Base,
+    Evaluation,
     EvaluationStatus,
+    ParentChildLink,
+    Subject,
     User,
     UserRole,
 )
@@ -667,3 +671,665 @@ def _set_settings():
     from app.core.config import Settings
 
     return Settings(max_upload_size_mb=20)
+
+
+# ---------------------------------------------------------------------------
+# s18b — T1 schema validation (Pydantic-level, no HTTP)
+# ---------------------------------------------------------------------------
+
+
+class TestScoreManualRequestSchema:
+    """AC1 + Piège 1: the request body is bounded by Pydantic.
+    Negative score, score > max_score, and oversized comments are
+    refused at 422 before the router / service is invoked."""
+
+    def test_score_manual_request_rejects_negative_score(self) -> None:
+        with pytest.raises(Exception) as exc_info:
+            ScoreManualRequest(score=-1.0, max_score=20.0)
+        # Pydantic raises ``ValidationError`` (subclass of Exception).
+        assert "score" in str(exc_info.value).lower()
+
+    def test_score_manual_request_rejects_score_greater_than_max(self) -> None:
+        with pytest.raises(Exception) as exc_info:
+            ScoreManualRequest(score=15.0, max_score=10.0)
+        msg = str(exc_info.value).lower()
+        assert "max_score" in msg or "score" in msg
+
+    def test_score_manual_request_teacher_comments_too_long(self) -> None:
+        long = "x" * 8193
+        with pytest.raises(Exception) as exc_info:
+            ScoreManualRequest(score=12.0, max_score=20.0, teacher_comments=long)
+        assert "teacher_comments" in str(exc_info.value).lower() or "at most" in str(
+            exc_info.value
+        ).lower()
+
+    def test_score_manual_request_accepts_valid_payload(self) -> None:
+        """The happy-path body parses without error."""
+        req = ScoreManualRequest(
+            score=12.0, max_score=20.0, teacher_comments="Bon travail"
+        )
+        assert req.score == 12.0
+        assert req.max_score == 20.0
+        assert req.teacher_comments == "Bon travail"
+
+    def test_score_manual_request_teacher_comments_optional(self) -> None:
+        req = ScoreManualRequest(score=12.0, max_score=20.0)
+        assert req.teacher_comments is None
+
+
+# ---------------------------------------------------------------------------
+# s18b — T3 + T4 + T5 — HTTP-level integration (real service, in-memory DB)
+# ---------------------------------------------------------------------------
+
+
+_SEEDED_EVAL_ID = "11111111-1111-1111-1111-111111111111"
+_SEEDED_EVAL_ID_BOB = "33333333-3333-3333-3333-333333333333"
+_SEEDED_EVAL_ID_SCORED = "22222222-2222-2222-2222-222222222222"
+_SEEDED_EVAL_ID_BOB_SCORED = "44444444-4444-4444-4444-444444444444"
+
+
+class _OcrStubForRouter:
+    """In-memory OCR double for the s18b router tests.
+
+    Mirrors the stub in ``tests/services/ocr/test_evaluation_extractor.py``
+    (kept local so the API test file stays self-contained, per
+    AGENTS.md "Pas de refactor transverse")."""
+
+    def __init__(self, result_factory):
+        self._result_factory = result_factory
+        self.calls: list[tuple[str, str | None]] = []
+
+    def transcribe_image(self, image_path: str, prompt: str | None = None) -> OcrResult:
+        self.calls.append((image_path, prompt))
+        return self._result_factory(prompt or "")
+
+
+def _make_s3_with_fake_for_router() -> tuple[MinioClient, FakeS3]:
+    fake = FakeS3()
+    s3 = MinioClient(
+        endpoint="localhost:8333", access_key="k", secret_key="s", bucket="bkt"
+    )
+    s3._client = fake  # type: ignore[attr-defined]
+    return s3, fake
+
+
+def _seed_evaluation(
+    session_factory,
+    *,
+    eval_id: str = _SEEDED_EVAL_ID,
+    pseudo: str = "alice",
+    status: EvaluationStatus = EvaluationStatus.MANUAL_REVIEW_NEEDED,
+    score: float | None = None,
+    max_score: float | None = None,
+) -> Evaluation:
+    import uuid as _uuid
+    from datetime import UTC, datetime
+
+    with session_factory() as s:
+        row = Evaluation(
+            id=_uuid.UUID(eval_id),
+            student_pseudo=pseudo,
+            subject=Subject.MATHS,
+            s3_key=f"students/{pseudo}/{eval_id}",
+            filename="copie.png",
+            status=status,
+            score=score,
+            max_score=max_score,
+            annotations=None,
+            teacher_comments=None,
+            ocr_text="Note finale : 12/20",
+            ocr_confidence=0.9,
+            error_reason="no_score_in_transcript"
+            if status is EvaluationStatus.MANUAL_REVIEW_NEEDED
+            else None,
+            created_at=datetime.now(UTC),
+        )
+        s.add(row)
+        s.commit()
+    return row
+
+
+def _build_real_service(session_factory, ocr_text: str = "Note finale : 12/20"):
+    """Build a real :class:`EvaluationService` against in-memory backends."""
+    from app.core.config import Settings as _Settings
+
+    s3, fake = _make_s3_with_fake_for_router()
+    # Seed the image for the seeded eval row so reprocess can read it.
+    fake.objects[("bkt", f"students/alice/{_SEEDED_EVAL_ID}")] = (
+        b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+    )
+    fake.objects[("bkt", f"students/bob/{_SEEDED_EVAL_ID_BOB}")] = (
+        b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+    )
+    fake.objects[("bkt", f"students/alice/{_SEEDED_EVAL_ID_SCORED}")] = (
+        b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+    )
+    fake.objects[("bkt", f"students/bob/{_SEEDED_EVAL_ID_BOB_SCORED}")] = (
+        b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+    )
+
+    def _factory(prompt: str) -> OcrResult:
+        return OcrResult(ok=True, transcription=ocr_text, confidence=0.9)
+
+    extractor = EvaluationExtractor(ocr=_OcrStubForRouter(_factory), settings=_Settings())
+    service = EvaluationService(
+        s3_client=s3,
+        extractor=extractor,
+        session_factory=session_factory,
+        max_image_size_mb=20,
+    )
+    return service, fake
+
+
+@pytest.fixture()
+def real_service_client(session_factory):
+    """A TestClient with the REAL EvaluationService wired (no stub)."""
+
+    def _override_get_db() -> Iterator:
+        s = session_factory()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    def _service_override():
+        service, _fake = _build_real_service(session_factory)
+        return service
+
+    from app.api.evaluations.factory import get_evaluation_service_dep
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_evaluation_service_dep] = _service_override
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_evaluation_service_dep, None)
+
+
+@pytest.fixture()
+def seeded_admin(session_factory) -> User:
+    with session_factory() as db:
+        user = User(
+            pseudo="boss",
+            password_hash=hash_password("seedpassword1"),
+            role=UserRole.ADMIN,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+
+@pytest.fixture()
+def seeded_parent(session_factory) -> User:
+    with session_factory() as db:
+        user = User(
+            pseudo="pat",
+            password_hash=hash_password("seedpassword1"),
+            role=UserRole.PARENT,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+
+@pytest.fixture()
+def seeded_eleve_charlie(session_factory) -> User:
+    """A third eleve — used to verify the cross-tenant bite."""
+    with session_factory() as db:
+        user = User(
+            pseudo="charlie",
+            password_hash=hash_password("seedpassword1"),
+            role=UserRole.ELEVE,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+
+def _link_parent_to_child(session_factory, parent_pseudo: str, child_pseudo: str) -> None:
+    with session_factory() as db:
+        db.add(
+            ParentChildLink(
+                parent_pseudo=parent_pseudo,
+                child_pseudo=child_pseudo,
+            )
+        )
+        db.commit()
+
+
+# ---------------------------------------------------------------------------
+# T3 — happy paths (AC1, AC4, AC5, AC6) + 409 (AC2)
+# ---------------------------------------------------------------------------
+
+
+class TestScoreManualAdminHappyPath:
+    def test_score_manual_admin_updates_to_scored(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_admin: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """AC1 + AC5 + AC6: admin POSTs to score-manual on a
+        MANUAL_REVIEW_NEEDED row. The response is 200 with the
+        updated row, and the DB row is SCORED."""
+        _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID}/score-manual",
+            json={"score": 12.0, "max_score": 20.0, "teacher_comments": "Bon travail"},
+            headers=_bearer(seeded_admin),
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["status"] == "scored"
+        assert body["score"] == 12.0
+        assert body["max_score"] == 20.0
+        assert body["teacher_comments"] == "Bon travail"
+        assert body["evaluation_id"] == _SEEDED_EVAL_ID
+        # The DB row is updated.
+        import uuid as _uuid
+
+        with session_factory() as s:
+            row = s.get(Evaluation, _uuid.UUID(_SEEDED_EVAL_ID))
+            assert row is not None
+            assert row.status is EvaluationStatus.SCORED
+            assert row.score == 12.0
+            assert row.teacher_comments == "Bon travail"
+
+    def test_score_manual_returns_409_when_already_scored(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_admin: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """AC2: the row is already SCORED → the router returns 409
+        with ``code=state_conflict``. The DB row is NOT mutated."""
+        _seed_evaluation(
+            session_factory,
+            eval_id=_SEEDED_EVAL_ID_SCORED,
+            pseudo="alice",
+            status=EvaluationStatus.SCORED,
+            score=8.0,
+            max_score=20.0,
+        )
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID_SCORED}/score-manual",
+            json={"score": 18.0, "max_score": 20.0},
+            headers=_bearer(seeded_admin),
+        )
+        assert response.status_code == 409
+        body = response.json()
+        assert body["detail"]["code"] == "state_conflict"
+        # The DB row is NOT updated to 18.0.
+        import uuid as _uuid
+
+        with session_factory() as s:
+            row = s.get(Evaluation, _uuid.UUID(_SEEDED_EVAL_ID_SCORED))
+            assert row is not None
+            assert row.score == 8.0  # original
+
+
+class TestReprocessAdminHappyPath:
+    def test_reprocess_admin_extracts_and_updates(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_admin: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """AC4 + AC5: admin POSTs to reprocess on a MANUAL_REVIEW_NEEDED
+        row. The OCR finds ``12/20``, the row is updated to SCORED,
+        and the response carries the source."""
+        _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID}/reprocess",
+            headers=_bearer(seeded_admin),
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["status"] == "scored"
+        assert body["score"] == 12.0
+        assert body["max_score"] == 20.0
+        assert body["source"] == "regex"
+
+    def test_reprocess_leaves_manual_review_needed_on_ocr_failure(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_admin: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """AC5 second branch: when the re-extraction finds no score,
+        the response carries status=manual_review_needed and the
+        source=none."""
+        # Override the service factory for THIS test with an OCR stub
+        # that returns no score.
+        from app.api.evaluations.factory import get_evaluation_service_dep
+
+        def _override_get_db() -> Iterator:
+            s = session_factory()
+            try:
+                yield s
+            finally:
+                s.close()
+
+        s3, fake = _make_s3_with_fake_for_router()
+        fake.objects[("bkt", f"students/alice/{_SEEDED_EVAL_ID}")] = (
+            b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+        )
+
+        def _factory(prompt: str) -> OcrResult:
+            return OcrResult(
+                ok=True,
+                transcription="illisible",
+                confidence=0.7,
+                raw={
+                    "score": None,
+                    "max_score": None,
+                    "annotations": [],
+                    "teacher_comments": None,
+                    "ocr_text": "illisible",
+                    "ocr_confidence": 0.7,
+                },
+            )
+
+        from app.core.config import Settings as _Settings
+
+        extractor = EvaluationExtractor(ocr=_OcrStubForRouter(_factory), settings=_Settings())
+        service = EvaluationService(
+            s3_client=s3,
+            extractor=extractor,
+            session_factory=session_factory,
+            max_image_size_mb=20,
+        )
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[get_evaluation_service_dep] = lambda: service
+        try:
+            _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+            with TestClient(app) as c:
+                response = c.post(
+                    f"/api/evaluations/{_SEEDED_EVAL_ID}/reprocess",
+                    headers=_bearer(seeded_admin),
+                )
+            assert response.status_code == 200, response.text
+            body = response.json()
+            assert body["status"] == "manual_review_needed"
+            assert body["source"] == "none"
+            assert body["score"] is None
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_evaluation_service_dep, None)
+
+    def test_reprocess_returns_409_when_already_scored(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_admin: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """Piège 4 / research open question 3: a SCORED row cannot
+        be reprocessed (the audit log lives in loguru, not in a
+        history column)."""
+        _seed_evaluation(
+            session_factory,
+            eval_id=_SEEDED_EVAL_ID_SCORED,
+            pseudo="alice",
+            status=EvaluationStatus.SCORED,
+            score=8.0,
+            max_score=20.0,
+        )
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID_SCORED}/reprocess",
+            headers=_bearer(seeded_admin),
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "state_conflict"
+
+
+# ---------------------------------------------------------------------------
+# T4 — RBAC strict (AC3, AC7, AC8 + Piège 5)
+# ---------------------------------------------------------------------------
+
+
+class TestScoreManualRbac:
+    def test_score_manual_eleve_cannot_score_own_evaluation(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """AC3 + AC7 + Piège 5: alice (eleve) cannot score her own
+        evaluation. The router rejects with 403 BEFORE the service
+        is invoked — the DB row stays MANUAL_REVIEW_NEEDED."""
+        _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID}/score-manual",
+            json={"score": 15.0, "max_score": 20.0},
+            headers=_bearer(seeded_eleve_alice),
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "forbidden"
+        # The row is NOT mutated.
+        import uuid as _uuid
+
+        with session_factory() as s:
+            row = s.get(Evaluation, _uuid.UUID(_SEEDED_EVAL_ID))
+            assert row is not None
+            assert row.status is EvaluationStatus.MANUAL_REVIEW_NEEDED
+            assert row.score is None
+
+    def test_score_manual_parent_of_linked_child_succeeds(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_parent: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """Piège 2 success branch: pat (parent) is linked to alice →
+        score-manual succeeds. The row is updated to SCORED."""
+        _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+        _link_parent_to_child(session_factory, "pat", "alice")
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID}/score-manual",
+            json={"score": 14.0, "max_score": 20.0},
+            headers=_bearer(seeded_parent),
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "scored"
+        assert response.json()["score"] == 14.0
+
+    def test_score_manual_parent_of_unlinked_child_returns_403(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_parent: User,
+        seeded_eleve_bob: User,
+    ) -> None:
+        """AC8 / Piège 2 miss branch: pat (parent) is NOT linked to
+        bob → score-manual is rejected with 403. The DB row stays
+        MANUAL_REVIEW_NEEDED."""
+        # pat is NOT linked to bob — only alice is potentially linked.
+        _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID_BOB, pseudo="bob")
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID_BOB}/score-manual",
+            json={"score": 10.0, "max_score": 20.0},
+            headers=_bearer(seeded_parent),
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "forbidden"
+        # The row is NOT mutated.
+        import uuid as _uuid
+
+        with session_factory() as s:
+            row = s.get(Evaluation, _uuid.UUID(_SEEDED_EVAL_ID_BOB))
+            assert row is not None
+            assert row.status is EvaluationStatus.MANUAL_REVIEW_NEEDED
+
+
+class TestReprocessRbac:
+    def test_reprocess_eleve_returns_403(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """AC4 ``admin only``: an eleve cannot trigger a reprocess on
+        her own evaluation. The router rejects with 403."""
+        _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID}/reprocess",
+            headers=_bearer(seeded_eleve_alice),
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "forbidden"
+
+    def test_reprocess_parent_returns_403(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_parent: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """AC4 ``admin only``: even a linked parent is rejected with
+        403 — reprocess is strictly admin-only."""
+        _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+        _link_parent_to_child(session_factory, "pat", "alice")
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID}/reprocess",
+            headers=_bearer(seeded_parent),
+        )
+        assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# T5 — audit logging (no PII in the log line)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditLogging:
+    def test_score_manual_emits_audit_log(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_admin: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """T5: a successful score-manual emits the
+        ``security.evaluation_manual_score`` log line with the
+        caller / evaluation_id / new score fields. The
+        ``teacher_comments`` value MUST NOT appear in the log
+        (AGENTS.md § Backend logging — no PII)."""
+        from loguru import logger as _logger
+
+        captured: list[str] = []
+
+        sink_id = _logger.add(
+            lambda msg: captured.append(str(msg)),
+            level="INFO",
+        )
+        try:
+            _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+            secret_comment = "SECRET-PII-MUST-NOT-LEAK-12345"
+            response = real_service_client.post(
+                f"/api/evaluations/{_SEEDED_EVAL_ID}/score-manual",
+                json={
+                    "score": 12.0,
+                    "max_score": 20.0,
+                    "teacher_comments": secret_comment,
+                },
+                headers=_bearer(seeded_admin),
+            )
+            assert response.status_code == 200, response.text
+        finally:
+            _logger.remove(sink_id)
+
+        joined = "\n".join(captured)
+        assert "security.evaluation_manual_score" in joined
+        # Caller (admin pseudo) and evaluation_id are present.
+        assert _SEEDED_EVAL_ID in joined
+        assert "boss" in joined
+        # The score values are present.
+        assert "12" in joined
+        # The teacher_comments value MUST NOT be in the log line.
+        assert secret_comment not in joined
+        # No OCR text leak.
+        assert "Note finale" not in joined
+
+    def test_reprocess_emits_audit_log(
+        self,
+        real_service_client: TestClient,
+        session_factory,
+        seeded_admin: User,
+        seeded_eleve_alice: User,
+    ) -> None:
+        """T5: a reprocess emits the ``evaluation.reprocess_attempted``
+        log line. No S3 bytes, no ocr_text, no teacher_comments in
+        the log line."""
+        from loguru import logger as _logger
+
+        captured: list[str] = []
+
+        sink_id = _logger.add(
+            lambda msg: captured.append(str(msg)),
+            level="INFO",
+        )
+        try:
+            _seed_evaluation(session_factory, eval_id=_SEEDED_EVAL_ID, pseudo="alice")
+            response = real_service_client.post(
+                f"/api/evaluations/{_SEEDED_EVAL_ID}/reprocess",
+                headers=_bearer(seeded_admin),
+            )
+            assert response.status_code == 200, response.text
+        finally:
+            _logger.remove(sink_id)
+
+        joined = "\n".join(captured)
+        assert "evaluation.reprocess_attempted" in joined
+        assert _SEEDED_EVAL_ID in joined
+        assert "boss" in joined
+        # No OCR transcript leak.
+        assert "Note finale" not in joined
+        # No raw image bytes leak (the seeded bytes contain \x89PNG which
+        # is unlikely to appear in a plain log message).
+        assert "PNG" not in joined.upper().replace("EVALUATION_ID", "")
+
+
+# ---------------------------------------------------------------------------
+# T3 — 404 not_found mapping
+# ---------------------------------------------------------------------------
+
+
+class TestNotFoundMapping:
+    def test_score_manual_returns_404_when_evaluation_missing(
+        self,
+        real_service_client: TestClient,
+        seeded_admin: User,
+    ) -> None:
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID}/score-manual",
+            json={"score": 12.0, "max_score": 20.0},
+            headers=_bearer(seeded_admin),
+        )
+        assert response.status_code == 404
+        body = response.json()
+        assert body["detail"]["code"] == "not_found"
+
+    def test_reprocess_returns_404_when_evaluation_missing(
+        self,
+        real_service_client: TestClient,
+        seeded_admin: User,
+    ) -> None:
+        response = real_service_client.post(
+            f"/api/evaluations/{_SEEDED_EVAL_ID}/reprocess",
+            headers=_bearer(seeded_admin),
+        )
+        assert response.status_code == 404
+        body = response.json()
+        assert body["detail"]["code"] == "not_found"

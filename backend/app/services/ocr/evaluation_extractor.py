@@ -22,7 +22,9 @@ just reflects whether the score was extracted.
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 import time
 import uuid
 from collections.abc import Callable
@@ -30,6 +32,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Protocol
+
+from loguru import logger
 
 from app.core.config import Settings
 from app.core.database.models import Evaluation, EvaluationStatus, Subject
@@ -236,6 +240,25 @@ class EvaluationError(Exception):
         self.kind = kind
 
 
+class EvaluationStateError(Exception):
+    """State-transition failure raised by :class:`EvaluationService`.
+
+    Distinct from :class:`EvaluationError` (which carries a ``kind``
+    enum for upload failures). The router maps the message substring
+    to a status code:
+
+    * ``"not_found"`` → 404
+    * otherwise → 409 ``state_conflict`` (the row is in a state that
+      does not allow the requested transition — e.g. attempting to
+      score-manual a SCORED row, or to reprocess a SCORED row).
+
+    The error has no kind enum on purpose — the message IS the kind,
+    the two values above are the only ones the router ever emits.
+    A future ``EvaluationStateError`` subclass with a discriminator
+    is preferable to extending the message vocabulary.
+    """
+
+
 class _S3Like(Protocol):
     def put_object(
         self,
@@ -246,6 +269,8 @@ class _S3Like(Protocol):
         data: bytes,
     ) -> str: ...
 
+    def get_object(self, minio_key: str) -> bytes: ...
+
     def remove_object(self, key: str) -> None: ...
 
 
@@ -253,6 +278,8 @@ class _SessionLike(Protocol):
     def add(self, obj: Any) -> None: ...
     def commit(self) -> None: ...
     def rollback(self) -> None: ...
+    def get(self, entity: type, pk: Any) -> Any: ...
+    def refresh(self, obj: Any) -> None: ...
 
 
 @dataclass
@@ -268,6 +295,21 @@ class EvaluationUploadResult:
     ocr_confidence: float | None = None
     annotations: list[str] | None = None
     teacher_comments: str | None = None
+
+
+@dataclass
+class EvaluationReprocessResult:
+    """Outcome of a successful reprocess.
+
+    Carries the refreshed :class:`Evaluation` row, the
+    :class:`ExtractionResult` produced by the LLM vision pass, and
+    the row's status *before* the reprocess (so the router can
+    emit an audit log carrying the transition).
+    """
+
+    evaluation: Evaluation
+    extraction: ExtractionResult
+    previous_status: EvaluationStatus
 
 
 class EvaluationService:
@@ -434,6 +476,140 @@ class EvaluationService:
         )
         session.commit()
 
+    # -------------------------------------------------------------------
+    # s18b — manual score entry and reprocess workflows.
+    # -------------------------------------------------------------------
+
+    def score_manual(
+        self,
+        *,
+        evaluation_id: uuid.UUID,
+        score: float,
+        max_score: float,
+        teacher_comments: str | None = None,
+    ) -> Evaluation:
+        """Persist a manually-entered score on a MANUAL_REVIEW_NEEDED row.
+
+        The router has already validated the body bounds (Pydantic, 422
+        on miss). The service is responsible for the state transition
+        (AC2 → 409 ``state_conflict`` if the row is not
+        ``MANUAL_REVIEW_NEEDED``, AC1 → 404 ``not_found`` if the row
+        is missing).
+
+        Returns the refreshed :class:`Evaluation` row. The audit log
+        (carrying the **caller** pseudo) is emitted at the router
+        layer so the service stays unaware of the JWT identity.
+        """
+        session = self._session_factory()
+        row = session.get(Evaluation, evaluation_id)
+        if row is None:
+            raise EvaluationStateError("not_found")
+        if row.status is not EvaluationStatus.MANUAL_REVIEW_NEEDED:
+            raise EvaluationStateError(
+                f"evaluation already scored (status={row.status.value!r}); "
+                "score-manual only accepts rows in 'manual_review_needed'"
+            )
+        row.score = score
+        row.max_score = max_score
+        row.teacher_comments = teacher_comments
+        row.error_reason = None
+        row.status = EvaluationStatus.SCORED
+        session.commit()
+        session.refresh(row)
+        return row
+
+    def reprocess(
+        self, *, evaluation_id: uuid.UUID
+    ) -> EvaluationReprocessResult:
+        """Re-run the LLM vision extractor on the original image.
+
+        The original S3 object is downloaded to a tempfile, the
+        extractor is invoked (synchronous, ~50-200 ms), and the row
+        is updated with the new :class:`ExtractionResult`. The state
+        transition is the same as :meth:`upload`:
+
+        * score present → ``SCORED`` (the new score replaces the
+          previous one — same row, no history column, Piège 3
+          audit lives in loguru)
+        * score absent → ``MANUAL_REVIEW_NEEDED`` (preserved)
+        * row already ``SCORED`` → 409 (re-scorer une copie déjà
+          scorée n'a pas de sens — recherche Piège 4)
+        * row missing → 404
+
+        Returns an :class:`EvaluationReprocessResult` carrying the
+        refreshed row, the :class:`ExtractionResult`, and the
+        ``previous_status`` so the router can emit an audit log
+        carrying the transition. The audit log itself is emitted at
+        the router layer (the service does not know the caller).
+        """
+        session = self._session_factory()
+        row = session.get(Evaluation, evaluation_id)
+        if row is None:
+            raise EvaluationStateError("not_found")
+        if row.status is EvaluationStatus.SCORED:
+            raise EvaluationStateError(
+                f"evaluation already scored (status={row.status.value!r}); "
+                "reprocess is reserved for 'manual_review_needed' rows"
+            )
+
+        previous_status = row.status
+
+        # Pull the original image bytes from S3, write to a tempfile,
+        # invoke the extractor, unlink in `finally`. The tempfile
+        # survives the function call (delete=False) so the extractor
+        # can read from disk.
+        image_bytes = self._s3.get_object(row.s3_key)
+        suffix = Path(row.filename).suffix or ".png"
+        tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115 - see comment below
+            prefix="ktutor-eval-reprocess-",
+            suffix=suffix,
+            delete=False,
+        )
+        tmp.write(image_bytes)
+        tmp.close()
+        tmp_path: str | None = None
+        try:
+            tmp_path = tmp.name
+            # The OCR transport is down — the row stays in
+            # MANUAL_REVIEW_NEEDED (its existing state); nothing
+            # was changed. The router maps this to 500.
+            result = self._extractor.extract(tmp_path)
+            new_status = (
+                EvaluationStatus.SCORED
+                if result.score is not None
+                else EvaluationStatus.MANUAL_REVIEW_NEEDED
+            )
+            new_error_reason: str | None = None
+            if new_status is EvaluationStatus.MANUAL_REVIEW_NEEDED:
+                new_error_reason = (
+                    "no_score_in_transcript" if not result.ocr_text
+                    else "no_score_extracted"
+                )
+            row.score = result.score
+            row.max_score = result.max_score
+            row.annotations = result.annotations or None
+            row.teacher_comments = result.teacher_comments
+            row.ocr_text = result.ocr_text
+            row.ocr_confidence = result.ocr_confidence
+            row.status = new_status
+            row.error_reason = new_error_reason
+            session.commit()
+            session.refresh(row)
+            return EvaluationReprocessResult(
+                evaluation=row,
+                extraction=result,
+                previous_status=previous_status,
+            )
+        finally:
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    logger.warning(
+                        "Could not remove reprocess tempfile {}; ignored.",
+                        tmp_path,
+                    )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -496,7 +672,9 @@ __all__ = [
     "EvaluationErrorKind",
     "EvaluationExtractionError",
     "EvaluationExtractor",
+    "EvaluationReprocessResult",
     "EvaluationService",
+    "EvaluationStateError",
     "EvaluationUploadResult",
     "ExtractionResult",
 ]
