@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
