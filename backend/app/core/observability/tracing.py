@@ -1,8 +1,6 @@
 """OpenTelemetry tracing setup (console / OTLP)."""
 from __future__ import annotations
 
-import os
-
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider

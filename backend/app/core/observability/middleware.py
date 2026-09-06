@@ -6,12 +6,12 @@ import uuid
 from typing import Any
 
 from fastapi import Request
+from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from loguru import logger
 from app.core.observability.metrics import (
-    http_requests_total,
     http_request_duration_seconds,
+    http_requests_total,
 )
 
 
@@ -25,12 +25,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         # Minimal extraction: we don't decode JWT here to keep middleware fast.
         # The middleware logs the fields; pseudo is set to None if not available,
         # and the logging layer will propagate it via contextvars when available.
-        try:
-            # We rely on the logger's extra fields set elsewhere (e.g. router).
-            # For the middleware, we inject at least request_id and route.
-            pass
-        except Exception:
-            pass
+        pseudo = None
         response = await call_next(request)
         duration_ms = (time.time() - start) * 1000
         logger.info(

@@ -12,8 +12,7 @@ def init_celery_logger() -> None:
     OCR, evaluation processing, etc.).
     """
     try:
-        import celery
-        from celery.signals import before_task_publish, after_task_publish, task_failure, task_retry, task_success
+        from celery.signals import after_task_publish, before_task_publish, task_failure, task_retry, task_success
 
         @before_task_publish.connect
         def log_before_task_publish(sender=None, body=None, headers=None, **kwargs) -> None:
