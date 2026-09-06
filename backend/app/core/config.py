@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     api_port: int = 8000
     debug: bool = False
     log_level: str = "INFO"
+    ot_exporter: str = "console"
+    metrics_enabled: bool = True
     # Comma-separated list of allowed origins for CORS (s09). The
     # operator must keep this in sync with the frontend's
     # ``NEXT_PUBLIC_API_URL`` host (or its expected ``Origin`` header).

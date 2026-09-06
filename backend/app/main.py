@@ -30,9 +30,12 @@ from app.api.dashboard.eleve import router as dashboard_eleve_router
 from app.api.dashboard.parent import router as dashboard_parent_router
 from app.api.documents.router import router as documents_router
 from app.api.evaluations.router import router as evaluations_router
+from app.api.metrics import router as metrics_router
 from app.api.users.router import router as users_router
 from app.core.config import get_settings
 from app.core.database.session import init_db
+from app.core.observability.middleware import ObservabilityMiddleware
+from app.core.observability.tracing import setup_tracing
 
 
 @asynccontextmanager
@@ -54,6 +57,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             "lifespan: init_db() failed ({}); continuing without DB schema",
             exc.__class__.__name__,
         )
+    # Initialize OTEL tracing
+    setup_tracing()
     yield
 
 
@@ -72,6 +77,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ObservabilityMiddleware)
 
 app.include_router(chat_router)
 app.include_router(chat_history_router)
@@ -81,6 +87,7 @@ app.include_router(users_router)
 app.include_router(dashboard_eleve_router)
 app.include_router(dashboard_parent_router)
 app.include_router(evaluations_router)
+app.include_router(metrics_router)
 
 
 __all__ = ["app"]

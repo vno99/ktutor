@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>s23 — Observabilité (pas d'écran UI)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --canvas: #FAFBFC; --surface: #FFFFFF; --text: #0D0F14; --text-secondary: #5B6472; --border: #E2E6EE; --primary: #3D5AFE; --radius-md: 8px; }
+    body { font-family: system-ui, sans-serif; background: var(--canvas); color: var(--text); max-width: 720px; margin: 0 auto; padding: 2rem 1.5rem; line-height: 1.6; }
+    header { margin-bottom: 2rem; }
+    h1 { font-size: 1.75rem; font-weight: 600; letter-spacing: -0.011em; }
+    .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; background: var(--primary); color: #fff; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; }
+    .section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.25rem; }
+    .section h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.75rem; }
+    .label { font-size: 0.875rem; color: var(--text-secondary); }
+    ul { margin: 0.5rem 0 0 1.25rem; padding-left: 0; }
+    li { margin-bottom: 0.35rem; font-size: 0.95rem; }
+    .note { font-size: 0.8rem; color: var(--text-secondary); border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="badge">Infrastructure</span>
+    <h1>s23 — Observabilité : logs, traces, métriques</h1>
+    <p class="label">Pas d'écran utilisateur. Design technique de référence pour le backend.</p>
+  </header>
+
+  <div class="section">
+    <h2>Composants du système (non-UI)</h2>
+    <ul>
+      <li><strong>Middleware HTTP</strong> — log chaque requête avec <code>request_id</code>, <code>route</code>, <code>duration_ms</code>, <code>pseudo</code> (extrait du JWT).</li>
+      <li><strong>Loguru (JSON)</strong> — format structuré : <code>timestamp</code>, <code>level</code>, <code>message</code>, <code>extra</code> (request_id, pseudo, route, duration_ms).</li>
+      <li><strong>OpenTelemetry</strong> — traces exportées console (local) ou OTLP (si <code>OTEL_EXPORTER=otlp</code>).</li>
+      <li><strong>LLM wrapper</strong> — log chaque appel avec <code>duration_ms</code>, <code>model</code>, <code>prompt_tokens</code>, <code>completion_tokens</code> (quand disponibles).</li>
+      <li><strong>Celery tasks</strong> — log au démarrage, succès et échec (si tâches présentes dans le projet).</li>
+      <li><strong>Prometheus <code>/metrics</code></strong> — endpoint sans auth (local) exposant au minimum 5 compteurs.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>Fichiers impactés (référence technique)</h2>
+    <ul>
+      <li><code>backend/app/core/logging.py</code></li>
+      <li><code>backend/app/core/config.py</code></li>
+      <li><code>backend/app/main.py</code> (middleware + lifespan OTEL)</li>
+      <li><code>backend/app/core/observability/</code> (nouveau)</li>
+      <li><code>backend/app/api/metrics.py</code> (nouveau endpoint)</li>
+      <li><code>backend/app/services/llm/client.py</code> (wrapper log)</li>
+      <li><code>requirements.txt</code> (ajout packages)</li>
+      <li><code>.env</code> (variables OTEL / METRICS)</li>
+    </ul>
+  </div>
+
+  <p class="note">Référence uniquement — pas de code copiable. L'implémentation se fait dans le backend via le pipeline standard. Aucun composant UI du design system (Button, Card, Header, etc.) n'est impliqué dans cette story.</p>
+</body>
+</html>

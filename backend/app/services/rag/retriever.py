@@ -79,8 +79,13 @@ class Retriever:
 
         # The ONLY way to access a tenant's data: ask for the collection by
         # (subject, pseudo). Never accept a collection name.
-        collection = self._chroma.get_collection(subject, pseudo)
-        raw = collection.query(
+        from opentelemetry import trace
+        from app.core.observability.metrics import rag_retrievals_total
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("rag_retrieval"):
+            rag_retrievals_total.inc()
+            collection = self._chroma.get_collection(subject, pseudo)
+            raw = collection.query(
             query_embeddings=[query_vec],
             n_results=k,
             include=["documents", "metadatas", "distances"],
