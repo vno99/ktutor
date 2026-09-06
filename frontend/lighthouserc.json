@@ -11,7 +11,11 @@
         "http://localhost:3000/fr/dashboard/eleve",
         "http://localhost:3000/en/dashboard/eleve",
         "http://localhost:3000/fr/dashboard/parent",
-        "http://localhost:3000/fr/dashboard/parent/bob"
+        "http://localhost:3000/fr/dashboard/parent/bob",
+        "http://localhost:3000/fr/history",
+        "http://localhost:3000/en/history",
+        "http://localhost:3000/en/chat",
+        "http://localhost:3000/en/upload"
       ],
       "numberOfRuns": 1
     },

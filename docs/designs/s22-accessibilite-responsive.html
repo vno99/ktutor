@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>s22 — Référence accessibilité et responsive</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root { --color-primary:#3D5AFE; --color-primary-strong:#1E2A8A; --color-canvas:#FAFBFC; --color-surface:#FFFFFF; --color-surface-subtle:#F4F6FA; --color-border:#E2E6EE; --color-text-primary:#0D0F14; --color-text-secondary:#5B6472; --color-text-tertiary:#8B95A3; --font-sans:'Inter',system-ui,sans-serif; --font-mono:'JetBrains Mono',monospace; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--font-sans); background: var(--color-canvas); color: var(--color-text-primary); margin: 0; line-height: 1.5; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+    :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+    .wrap { max-width: 1024px; margin: 0 auto; padding: 2rem 1rem; }
+    h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.011em; margin-bottom: .25rem; }
+    h2 { font-size: 1.25rem; font-weight: 600; margin-top: 2rem; margin-bottom: .75rem; border-bottom: 1px solid var(--color-border); padding-bottom: .5rem; }
+    h3 { font-size: 1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: .5rem; }
+    p { color: var(--color-text-secondary); margin: .5rem 0; }
+    code { font-family: var(--font-mono); font-size: .875rem; background: var(--color-surface-subtle); padding: .1rem .3rem; border-radius: 4px; }
+    .badge { display: inline-block; padding: .15rem .5rem; border-radius: 9999px; font-size: .75rem; font-weight: 600; letter-spacing: .01em; background: var(--color-primary); color: #fff; }
+    .badge-success { background: #16A34A; }
+    .badge-warning { background: #D97706; }
+    .badge-error { background: #DC2626; }
+    .card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 4px rgba(13,15,20,.06), 0 1px 2px rgba(13,15,20,.04); }
+    .grid-3 { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+    .section-label { font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; color: var(--color-text-tertiary); margin-top: 2.5rem; margin-bottom: .5rem; }
+    .focus-box { display: inline-flex; align-items: center; justify-content: center; height: 2.75rem; min-width: 2.75rem; padding: 0 .75rem; border-radius: 6px; font-size: .875rem; font-weight: 500; background: var(--color-primary); color: #fff; border: none; cursor: pointer; transition: background .15s; }
+    .focus-box:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; box-shadow: 0 0 0 4px rgba(61,90,254,.15); }
+    .label-box { display: inline-block; padding: .15rem .5rem; border-radius: 9999px; font-size: .75rem; font-weight: 500; border: 1px solid var(--color-border); background: var(--color-surface-subtle); color: var(--color-text-secondary); }
+    table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+    th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--color-border); }
+    th { font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .04em; font-size: .75rem; }
+    .mono { font-family: var(--font-mono); }
+    footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--color-border); font-size: .75rem; color: var(--color-text-tertiary); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>s22 — Référence accessibilité & responsive</h1>
+    <p><span class="badge">Audit</span> <span class="badge badge-success">WCAG 2.1 A</span> <span class="badge badge-warning">Responsive</span> <span class="badge">Playwright + axe-core</span> <span class="badge">Lighthouse ≥ 90</span></p>
+    <p>Cette page est la référence statique du design-system appliquée à s22. Elle ne remplace pas le code. Le code reste dans <code>frontend/components/*.tsx</code> et <code>frontend/app/**/*.tsx</code>.</p>
+
+    <h2>Pages auditées (4 surfaces)</h2>
+    <div class="grid-3">
+      <div class="card">
+        <h3>/fr/chat · /en/chat</h3>
+        <p>Composants : <code>&lt;StreamingMessage&gt;</code>, <code>&lt;Button&gt;</code>, <code>&lt;Header&gt;</code>. A11y : <code>aria-live="polite"</code>, <code>aria-busy</code>, <code>focus-visible:ring-2</code>.</p>
+      </div>
+      <div class="card">
+        <h3>/fr/upload · /en/upload</h3>
+        <p>Composants : <code>&lt;FileUpload&gt;</code>, <code>&lt;Select&gt;</code>, <code>&lt;Label&gt;</code>. A11y : <code>&lt;label htmlFor&gt;</code> drop zone, <code>aria-disabled</code>, <code>sr-only</code> input.</p>
+      </div>
+      <div class="card">
+        <h3>/fr/dashboard/eleve · /en/dashboard/eleve</h3>
+        <p>Composants : <code>&lt;Header&gt;</code> (avatar, menu natif <code>&lt;details&gt;/&lt;summary&gt;</code>), <code>&lt;Card&gt;</code>. A11y : <code>aria-current="page"</code>, <code>role="menu"</code>, <code>role="menuitem"</code>.</p>
+      </div>
+      <div class="card">
+        <h3>/fr/history · /en/history</h3>
+        <p>Composants : <code>&lt;HistoryListClient&gt;</code>, <code>&lt;Header&gt;</code>. A11y : même contrat que dashboard.</p>
+      </div>
+    </div>
+
+    <h2>Conventions a11y (design-system § Accessibilité)</h2>
+    <table>
+      <thead><tr><th>Convention</th><th>Fichier / Ligne</th><th>État actuel</th></tr></thead>
+      <tbody>
+        <tr><td><code>:focus-visible</code> ring 2px</td><td><code>globals.css</code> l.96-99</td><td><span class="label-box">OK</span></td></tr>
+        <tr><td><code>prefers-reduced-motion</code> 0.01ms</td><td><code>globals.css</code> l.84-93</td><td><span class="label-box">OK</span></td></tr>
+        <tr><td><code>aria-live="polite"</code> stream</td><td><code>StreamingMessage.tsx</code> l.101</td><td><span class="label-box">OK</span></td></tr>
+        <tr><td><code>aria-busy</code> sur stream</td><td><code>StreamingMessage.tsx</code> l.102</td><td><span class="label-box">OK</span></td></tr>
+        <tr><td><code>&lt;label htmlFor&gt;</code> drop zone</td><td><code>FileUpload.tsx</code> l.179</td><td><span class="label-box">OK</span></td></tr>
+        <tr><td><code>aria-invalid</code> input</td><td><code>Input.tsx</code> / <code>Select.tsx</code></td><td><span class="label-box">OK</span></td></tr>
+        <tr><td>Bouton icon-only <code>aria-label</code></td><td><code>Button.tsx</code> (via props)</td><td><span class="label-box">OK</span></td></tr>
+        <tr><td>Touch target 44×44 px</td><td><code>Button.tsx</code> (md = h-11)</td><td><span class="label-box">OK</span></td></tr>
+        <tr><td>Contraste AA (4.5:1) texte / fond</td><td>Tokens <code>--color-*</code></td><td><span class="label-box">OK</span> — vérifier <code>text-text-tertiary</code> sur <code>bg-surface-subtle</code> (design-system Don't l.183-189)</td></tr>
+        <tr><td>Responsive 360 / 768 / 1280 px</td><td>CSS + Tailwind (pas de scroll horizontal)</td><td><span class="label-box">À vérifier</span> (Playwright config manque viewport mobile/tablette)</td></tr>
+        <tr><td>Lighthouse a11y ≥ 90</td><td><code>frontend/lighthouserc.json</code> l.20-23</td><td><span class="label-box">À vérifier</span> (pas de preuve dans CI)</td></tr>
+        <tr><td>axe-core 0 critical / serious</td><td>Non intégré dans <code>playwright.config.ts</code></td><td><span class="label-box">À ajouter</span></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Breakpoints (design-system § Layout)</h2>
+    <div class="grid-3">
+      <div class="card">
+        <h3>≤ 360 px (smartphone)</h3>
+        <p>Pas de <code>max-w-*</code>, <code>px-4</code>, contenu full-width. Bottom tab bar visible. Header sticky 56 px.</p>
+      </div>
+      <div class="card">
+        <h3>≥ 768 px (tablette)</h3>
+        <p><code>max-w-3xl</code> (chat) / <code>max-w-2xl</code> (upload) + <code>mx-auto</code> + <code>px-6</code>. Nav desktop visible.</p>
+      </div>
+      <div class="card">
+        <h3>≥ 1280 px (desktop)</h3>
+        <p>Même layout que tablette, plus large. Pas de scroll horizontal sur aucune page.</p>
+      </div>
+    </div>
+
+    <h2>Gaps (non inventés)</h2>
+    <p>Aucun nouveau composant, aucun nouveau token. Les gaps existants du design-system (Skeleton, Dialog, Tabs, Table, NotificationBell, dark/light toggle, Stop sur stream) restent hors-scope. Le seul besoin est l'outillage de test (axe-core + responsive Playwright) et la vérification réelle du score Lighthouse.</p>
+
+    <h2>Référence technique (pas de copie dans le code)</h2>
+    <p>Les conventions a11y et responsive sont déjà codées dans le design-system (<code>docs/design-system.md</code>) et dans les composants partagés (<code>frontend/components/*.tsx</code>). Cette page est un rappel visuel pour le plan et la vérification. Le code de production reste le même.</p>
+
+    <footer>
+      Design — s22-accessibilite-responsive · Worktree <code>.worktrees/s22-accessibilite-responsive</code> · Référence, pas production.
+    </footer>
+  </div>
+</body>
+</html>
