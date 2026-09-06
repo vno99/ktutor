@@ -52,6 +52,28 @@ def test_main_has_observability_middleware():
     assert any("Observability" in n or "Log" in n for n in names) or len(names) >= 1
 
 
+def test_alert_console_output():
+    from app.core.observability.alerts import check_alerts
+    # Synthetic 5xx storm: 10 errors out of 50 total = 20% > 5%
+    snapshot = {
+        "http_requests_total": 50,
+        "http_requests_5xx": 10,
+        "p95_latency_sec": 1.0,
+        "celery_queue_length": 10,
+    }
+    alerts = check_alerts(snapshot)
+    assert any("ALERT" in a and "5xx" in a for a in alerts)
+
+
+def test_alert_fires_on_5xx_storm():
+    from app.core.observability.alerts import check_alerts
+    # Storm scenario: 100 requests, 20 errors → 20% rate
+    snapshot = {"http_requests_total": 100, "http_requests_5xx": 20}
+    alerts = check_alerts(snapshot)
+    assert len(alerts) >= 1
+    assert any("ALERT" in a for a in alerts)
+
+
 def test_log_json_has_request_fields():
     from app.core.logging import _serialize
     # Verify serialization directly without altering global logger

@@ -14,3 +14,4 @@ llm_call_duration_seconds = Counter(
     "llm_call_duration_seconds", "LLM call duration", ["model"]
 )
 rag_retrievals_total = Counter("rag_retrievals_total", "RAG retrievals")
+celery_queue_length = Counter("celery_queue_length", "Current Celery queue length")

@@ -59,6 +59,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         )
     # Initialize OTEL tracing
     setup_tracing()
+    # Initialize alerting (POC console only)
+    logger.info("Alerting system initialized (POC console mode)")
     yield
 
 
