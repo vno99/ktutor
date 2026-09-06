@@ -6,20 +6,21 @@ interface MarkdownContentProps {
   locale?: 'fr' | 'en';
 }
 
-export default function MarkdownContent({ filePath }: MarkdownContentProps) {
-  // Files are at frontend/docs/user-guide/ (static, not under [locale] segment)
-  const fullPath = path.resolve(process.cwd(), 'docs', 'user-guide', filePath);
+export default function MarkdownContent({ filePath, locale = 'fr' }: MarkdownContentProps) {
+  // Read markdown file statically (server component)
+  const fileName = locale === 'en' ? filePath.replace('.md', '.en.md') : filePath;
+  const fullPath = path.resolve(__dirname, '..', '..', 'docs', 'user-guide', fileName);
   let content = '';
   try {
     content = readFileSync(fullPath, 'utf-8');
   } catch {
-    content = `<p>Content not found: ${filePath}</p>`;
+    // Fallback to base file if localized version missing
+    content = readFileSync(path.resolve(__dirname, '..', '..', 'docs', 'user-guide', filePath), 'utf-8');
   }
 
   // Minimal markdown-to-HTML conversion for the user-guide format
   const html = content
     .replace(/\n---\n/g, '<hr />')
-    .replace(/^### (.+?) <a id="(.+?)"><\/a>$/gm, '<h3 id="$2">$1</h3>')
     .replace(/^### (.+?) <a id="(.+?)"><\/a>$/gm, '<h3 id="$2">$1</h3>')
     .replace(/^### (.+)$/gm, '<h3 id="$1">$1</h3>')
     .replace(/^## (.+)$/gm, '<h2 id="$1">$1</h2>')
