@@ -182,6 +182,12 @@
       "expert": "Expert"
     }
   },
+  "docs": {
+    "title": "Guide utilisateur",
+    "subtitle": "Comment utiliser ktutor — élève, parent et admin.",
+    "navTitle": "Navigation",
+    "navAria": "Navigation du guide utilisateur"
+  },
   "history": {
     "title": "Mes conversations",
     "detailTitle": "Conversation",
