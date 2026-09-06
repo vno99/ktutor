@@ -24,7 +24,6 @@ from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 from app.core.database.models import Subject
-from app.core.observability.tracing import setup_tracing
 from app.services.agents.types import ChatResult, StreamChunk
 
 

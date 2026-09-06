@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """LLM client factory + ``LlmClient`` Protocol.
 
 Decisions locked in the s02 plan:
@@ -18,18 +20,15 @@ chat model. The ``invoke`` method is preserved for the one-shot CLI and
 the non-streaming agent path. Both go through the same wrapper.
 """
 
-from __future__ import annotations
-
 import time
-
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from loguru import logger
 
 from app.core.config import Settings
-from loguru import logger
 
 
 @runtime_checkable

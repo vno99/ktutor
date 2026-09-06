@@ -1,6 +1,7 @@
-"""Observability layer: tracing, metrics, logging extensions."""
 from __future__ import annotations
 
-from app.core.observability import tracing, metrics
+"""Observability layer: tracing, metrics, logging extensions."""
 
-__all__ = ["tracing", "metrics"]
+from app.core.observability import metrics, tracing
+
+__all__ = ["metrics", "tracing"]
