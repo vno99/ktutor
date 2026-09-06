@@ -84,9 +84,12 @@ class SubjectSupervisor:
                 f"Expected one of: {sorted(self._subject_agents)!r}."
             )
         agent = self._subject_agents[subject]
-        return agent.ask(subject, pseudo, question)
+        from opentelemetry import trace
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("supervisor_ask"):
+            return agent.ask(subject, pseudo, question)
 
-    def astream(
+    async def astream(
         self, subject: str, pseudo: str, question: str
     ) -> AsyncIterator[StreamChunk]:
         """Dispatch ``astream`` to the agent bound to ``subject``.
@@ -103,7 +106,13 @@ class SubjectSupervisor:
                 f"Expected one of: {sorted(self._subject_agents)!r}."
             )
         agent = self._subject_agents[subject]
-        return agent.astream(subject, pseudo, question)
+        from opentelemetry import trace
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("supervisor_astream"):
+            # Stream through the agent while the span remains active.
+            # The span closes once the generator is fully consumed.
+            async for chunk in agent.astream(subject, pseudo, question):
+                yield chunk  # type: ignore[misc]
 
 
 __all__ = ["SubjectAgent", "SubjectSupervisor"]

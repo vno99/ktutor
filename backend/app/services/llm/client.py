@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """LLM client factory + ``LlmClient`` Protocol.
 
 Decisions locked in the s02 plan:
@@ -18,13 +20,13 @@ chat model. The ``invoke`` method is preserved for the one-shot CLI and
 the non-streaming agent path. Both go through the same wrapper.
 """
 
-from __future__ import annotations
-
+import time
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from loguru import logger
 
 from app.core.config import Settings
 
@@ -56,21 +58,49 @@ class _LangChainChatWrapper:
         self._chat = chat_model
 
     def invoke(self, messages: list[BaseMessage]) -> AIMessage:
-        # ``BaseChatModel.invoke`` already returns an ``AIMessage``; we type
-        # the wrapper contract on that to keep the agent's import surface small.
+        start = time.monotonic()
         result = self._chat.invoke(messages)
+        duration_ms = (time.monotonic() - start) * 1000
+        model = getattr(self._chat, "model_name", getattr(self._chat, "model", "unknown"))
+        prompt_tokens = None
+        completion_tokens = None
+        usage = getattr(result, "usage_metadata", None)
+        if usage and isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+        elif hasattr(result, "response_metadata") and isinstance(result.response_metadata, dict):
+            # OpenAI-compatible response_metadata sometimes holds usage
+            pass  # keep None defensively
+        logger.info(
+            "LLM call completed",
+            extra={
+                "duration_ms": round(duration_ms, 2),
+                "model": model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            },
+        )
         return result  # type: ignore[return-value]
 
     async def astream(self, messages: list[BaseMessage]) -> AsyncIterator[AIMessageChunk]:
-        """Yield ``AIMessageChunk`` instances as the upstream model produces them.
-
-        This is a thin pass-through to ``BaseChatModel.astream`` — the
-        contract is whatever the upstream model decides to emit (the agent
-        only consumes ``chunk.content``). Buffers and reorderings are
-        upstream concerns; the wrapper preserves the order.
-        """
-        async for chunk in self._chat.astream(messages):
-            yield chunk  # type: ignore[misc]
+        start = time.monotonic()
+        model = getattr(self._chat, "model_name", getattr(self._chat, "model", "unknown"))
+        prompt_tokens = None
+        completion_tokens = None
+        try:
+            async for chunk in self._chat.astream(messages):
+                yield chunk  # type: ignore[misc]
+        finally:
+            duration_ms = (time.monotonic() - start) * 1000
+            logger.info(
+                "LLM stream completed",
+                extra={
+                    "duration_ms": round(duration_ms, 2),
+                    "model": model,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                },
+            )
 
 
 def build_llm_client(settings: Settings) -> LlmClient:
