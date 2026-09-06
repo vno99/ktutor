@@ -36,7 +36,13 @@ from typing import Any, Literal, Protocol
 from loguru import logger
 
 from app.core.config import Settings
-from app.core.database.models import Evaluation, EvaluationStatus, Subject
+from app.core.database.models import (
+    Evaluation,
+    EvaluationStatus,
+    Notification,
+    NotificationType,
+    Subject,
+)
 from app.services.rag.ocr import OcrError, OcrResult
 
 # A canonical ``<n>/<m>`` pattern in the OCR text. Anchored on the
@@ -474,6 +480,15 @@ class EvaluationService:
                 error_reason=error_reason,
             )
         )
+        # s25 — trigger notification in the same DB transaction
+        session.add(
+            Notification(
+                student_pseudo=pseudo,
+                type=NotificationType.NEW_EVALUATION,
+                message=f"Nouvelle évaluation traitée ({subject})",
+                is_read=False,
+            )
+        )
         session.commit()
 
     # -------------------------------------------------------------------
@@ -514,6 +529,14 @@ class EvaluationService:
         row.teacher_comments = teacher_comments
         row.error_reason = None
         row.status = EvaluationStatus.SCORED
+        session.add(
+            Notification(
+                student_pseudo=row.student_pseudo,
+                type=NotificationType.NEW_EVALUATION,
+                message=f"Évaluation corrigée (score: {score})",
+                is_read=False,
+            )
+        )
         session.commit()
         session.refresh(row)
         return row

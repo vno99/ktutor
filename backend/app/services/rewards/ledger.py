@@ -7,7 +7,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.core.database.models import RewardLedger, User, UserPoints
+from app.core.database.models import Notification, NotificationType, RewardLedger, User, UserPoints
 
 
 class RewardLedgerService:
@@ -62,6 +62,18 @@ class RewardLedgerService:
         # Update denormalised total.
         user_points_row.total_points += points
         # The update triggers the server-side onupdate.
+
+        # s25 — notification trigger in same transaction
+        if points > 0:
+            self._session.add(
+                Notification(
+                    student_pseudo=pseudo,
+                    type=NotificationType.POINTS_AWARDED,
+                    message=f"+{points} points gagnés !",
+                    is_read=False,
+                )
+            )
+
         self._session.commit()
 
         logger.bind(

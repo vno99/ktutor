@@ -5,6 +5,8 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { usePathname } from 'next/navigation';
 import { LogOut } from 'lucide-react';
+import { useNotificationsStore } from '@/lib/stores/notificationsStore';
+import { NotificationBell } from './NotificationBell';
 import { useAuthStore } from '@/lib/stores/authStore';
 import { apiClient } from '@/lib/api';
 import { LanguageSwitcher } from './LanguageSwitcher';
@@ -47,6 +49,10 @@ export function Header({ activeNav }: { activeNav?: 'eleve' | 'parent' | null } 
   const hydrate = useAuthStore((s) => s.hydrate);
   const clearTokens = useAuthStore((s) => s.clearTokens);
 
+  const unreadCount = useNotificationsStore((s) => s.unreadCount);
+  const startPoll = useNotificationsStore((s) => s.startPoll);
+  const stopPoll = useNotificationsStore((s) => s.stopPoll);
+
   const pathname = usePathname() ?? '';
   const isChatActive = pathname.endsWith('/chat');
   const isUploadActive = pathname.endsWith('/upload');
@@ -57,6 +63,15 @@ export function Header({ activeNav }: { activeNav?: 'eleve' | 'parent' | null } 
   useEffect(() => {
     if (!hydrated) hydrate();
   }, [hydrated, hydrate]);
+
+  useEffect(() => {
+    if (hydrated && isAuthenticated) {
+      startPoll();
+    }
+    return () => {
+      stopPoll();
+    };
+  }, [hydrated, isAuthenticated, startPoll, stopPoll]);
 
   const initial = pseudo ? pseudo.charAt(0).toUpperCase() : '?';
   const showAuthed = hydrated && isAuthenticated;
@@ -156,6 +171,15 @@ export function Header({ activeNav }: { activeNav?: 'eleve' | 'parent' | null } 
         <div className="hidden sm:block">
           <LanguageSwitcher />
         </div>
+
+        {showAuthed && (
+          <NotificationBell
+            unreadCount={unreadCount}
+            onClick={() => {
+              // Dropdown logic can be added later; for POC, no-op click.
+            }}
+          />
+        )}
 
         {showAuthed ? (
           <details className="relative">

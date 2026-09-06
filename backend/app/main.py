@@ -31,6 +31,7 @@ from app.api.dashboard.parent import router as dashboard_parent_router
 from app.api.documents.router import router as documents_router
 from app.api.evaluations.router import router as evaluations_router
 from app.api.metrics import router as metrics_router
+from app.api.notifications import router as notifications_router
 from app.api.users.router import router as users_router
 from app.core.config import get_settings
 from app.core.database.session import init_db
@@ -89,6 +90,7 @@ app.include_router(users_router)
 app.include_router(dashboard_eleve_router)
 app.include_router(dashboard_parent_router)
 app.include_router(evaluations_router)
+app.include_router(notifications_router)
 app.include_router(metrics_router)
 
 

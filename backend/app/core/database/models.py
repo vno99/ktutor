@@ -601,6 +601,58 @@ class RewardLedger(Base):
         )
 
 
+class NotificationType(str, enum.Enum):
+    """Notification trigger sources (s25)."""
+
+    NEW_EVALUATION = "new_evaluation"
+    POINTS_AWARDED = "points_awarded"
+
+
+class Notification(Base):
+    """In-app notification triggered by events (s25)."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    student_pseudo: Mapped[str] = mapped_column(
+        String(32),
+        ForeignKey("users.pseudo", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    type: Mapped[NotificationType] = mapped_column(
+        Enum(
+            NotificationType,
+            name="notification_type_enum",
+            native_enum=False,
+            length=32,
+        ),
+        nullable=False,
+    )
+    message: Mapped[str] = mapped_column(String(512), nullable=False)
+    related_id: Mapped[uuid.UUID | None] = mapped_column(
+        nullable=True,
+    )
+    is_read: Mapped[bool] = mapped_column(
+        nullable=False,
+        default=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging only
+        return (
+            f"<Notification id={self.id} pseudo={self.student_pseudo!r} "
+            f"type={self.type.value} is_read={self.is_read}>"
+        )
+
+
 class UserPoints(Base):
     """Denormalised points summary per student (s20a, AC5). Updated via
     ``SELECT ... FOR UPDATE`` in the same transaction as the ``INSERT`` into
