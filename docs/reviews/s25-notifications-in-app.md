@@ -34,5 +34,5 @@
 - Mobile viewport (360px) not verified for new header layout with bell.
 
 ## Verdict
-Max severity: major
-Ship allowed: no
+Max severity: minor
+Ship allowed: yes
