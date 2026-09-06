@@ -9,13 +9,13 @@ interface MarkdownContentProps {
 export default function MarkdownContent({ filePath, locale = 'fr' }: MarkdownContentProps) {
   // Read markdown file statically (server component)
   const fileName = locale === 'en' ? filePath.replace('.md', '.en.md') : filePath;
-  const fullPath = path.join(process.cwd(), 'docs', 'user-guide', fileName);
+  const fullPath = path.resolve(__dirname, "..", "..", "docs", "user-guide", fileName);
   let content = '';
   try {
     content = readFileSync(fullPath, 'utf-8');
   } catch {
     // Fallback to base file if localized version missing
-    content = readFileSync(path.join(process.cwd(), 'docs', 'user-guide', filePath), 'utf-8');
+    content = readFileSync(path.resolve(__dirname, '..', '..', 'docs', 'user-guide', filePath), 'utf-8');
   }
 
   // Minimal markdown-to-HTML conversion for the user-guide format
