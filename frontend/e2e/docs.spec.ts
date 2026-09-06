@@ -28,10 +28,10 @@ test.describe('Documentation links', () => {
 
   test('/docs page renders with navigation and content in FR and EN', async ({ page }) => {
     await page.goto('/fr/docs');
-    await expect(page.locator('h1')).toContainText('Guide utilisateur');
+    await expect(page.locator('main > h1')).toContainText('Guide utilisateur');
     await expect(page.locator('nav a[href="#creer-compte"]')).toBeVisible();
 
     await page.goto('/en/docs');
-    await expect(page.locator('h1')).toContainText('User Guide');
+    await expect(page.locator('main > h1')).toContainText('User Guide');
   });
 });
