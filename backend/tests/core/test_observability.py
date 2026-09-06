@@ -1,6 +1,6 @@
 """Test env/config updates for s23."""
 import json
-import pytest
+
 from app.core.config import get_settings, reset_settings
 
 
@@ -13,7 +13,7 @@ def test_settings_has_observability_vars():
 
 
 def test_observability_module_exists():
-    from app.core.observability import tracing, metrics
+    from app.core.observability import metrics, tracing
     assert tracing is not None
     assert metrics is not None
 
@@ -44,7 +44,6 @@ def test_metrics_endpoint_exists():
 
 def test_main_has_observability_middleware():
     from app.main import app
-    from starlette.middleware.base import BaseHTTPMiddleware
     middleware_classes = [
         m.cls if hasattr(m, "cls") else m.__class__
         for m in app.user_middleware
@@ -54,7 +53,7 @@ def test_main_has_observability_middleware():
 
 
 def test_log_json_has_request_fields():
-    from app.core.logging import configure_logging, get_logger, _serialize
+    from app.core.logging import _serialize
     # Verify serialization directly without altering global logger
     fake_record = {
         "time": __import__("datetime").datetime.now(__import__("datetime").timezone.utc),
