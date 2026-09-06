@@ -22,6 +22,7 @@ export default function MarkdownContent({ filePath, locale = 'fr' }: MarkdownCon
   const html = content
     .replace(/\n---\n/g, '<hr />')
     .replace(/^### (.+?) <a id="(.+?)"><\/a>$/gm, '<h3 id="$2">$1</h3>')
+    .replace(/^### (.+?) <a id="(.+?)"><\/a>$/gm, '<h3 id="$2">$1</h3>')
     .replace(/^### (.+)$/gm, '<h3 id="$1">$1</h3>')
     .replace(/^## (.+)$/gm, '<h2 id="$1">$1</h2>')
     .replace(/^# (.+)$/gm, '<h1 id="$1">$1</h1>')
